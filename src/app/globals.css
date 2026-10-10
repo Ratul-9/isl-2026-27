@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/*
+ * DizPitch design tokens. The app chrome is a single restrained dark theme so
+ * the (Phase 2) green pitch is the visual centre. Semantic colours for tactical
+ * drawings are defined here so every phase uses the same values.
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-pitch: #1f7a3a;
+  --color-pitch-line: #f5f7f5;
+  --color-pass: #facc15;
+  --color-shot: #ef4444;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-zinc-950);
+  color: var(--color-zinc-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-emerald-400);
+  outline-offset: 2px;
+}
+
+/* Keyboard focus on SVG player markers: show the (dashed) selection ring. */
+.pitch-marker:focus-visible .pitch-marker-ring {
+  opacity: 1;
+  stroke-dasharray: 0.7 0.45;
+}
