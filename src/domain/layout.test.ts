@@ -5,6 +5,7 @@ import { fromTeamFrame } from './geometry';
 import {
   applyTemplate,
   captureLayout,
+  findPlayerAt,
   isLayoutModified,
   moveSlot,
   pickEmptySlot,
@@ -155,5 +156,21 @@ describe('slot choice helpers', () => {
 
   it('returns null when every slot is filled', () => {
     expect(pickEmptySlot(fullTeam().slots, 'CM')).toBeNull();
+  });
+});
+
+describe('findPlayerAt', () => {
+  it('finds the nearest occupied slot within the radius on either team', () => {
+    const teams = { home: fullTeam('home'), away: fullTeam('away') };
+    const striker = teams.home.slots.find((s) => s.playerId === 'home-p9')!;
+    expect(findPlayerAt(teams, { x: striker.x + 0.01, y: striker.y }, 3)).toMatchObject({ side: 'home', playerId: 'home-p9' });
+    const awayKeeper = teams.away.slots.find((s) => s.position === 'GK')!;
+    expect(findPlayerAt(teams, awayKeeper, 3)?.side).toBe('away');
+    expect(findPlayerAt(teams, { x: 0.5, y: 0.02 }, 3)).toBeNull();
+  });
+
+  it('ignores empty slots', () => {
+    const teams = { home: fullTeam('home', 0, 0), away: fullTeam('away', 0, 0) };
+    expect(findPlayerAt(teams, teams.home.slots[0], 5)).toBeNull();
   });
 });

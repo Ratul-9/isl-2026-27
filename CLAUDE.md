@@ -11,7 +11,7 @@ In scope: everything in `docs/BUILD_PLAN.md`. Out of scope for this version: bac
 
 ## Current state
 
-Phases 0–2 complete: app shell with **Board** (default) and **Setup** views; match setup and roster editor; SVG pitch (landscape/portrait), 10 formation presets, draggable/keyboard-movable player markers, reset-to-formation, saved custom arrangements, and a 12-pattern tactical library that adds read-only pass/movement arrows. All state is in memory. **No drawing tools, undo/redo, clock, events or persistence yet.** See `docs/IMPLEMENTATION_STATUS.md` for the next phase. Only implement the phase the user explicitly asks for, then stop.
+Phases 0–3 complete: app shell with **Board** (default) and **Setup** views; match setup and roster editor; SVG pitch (landscape/portrait), 10 formations, draggable/keyboard-movable players, reset-to-formation, saved arrangements, 12 tactical patterns; **drawing engine** (Select, Pass, Lofted "LD", Shot, Run, Freehand, Eraser tools; select/move/edit endpoints/notes/convert/reverse/delete; Clear annotations) and **undo/redo** for all board changes. All state is in memory. **No clock, events or persistence yet.** See `docs/IMPLEMENTATION_STATUS.md` for the next phase. Only implement the phase the user explicitly asks for, then stop.
 
 ## Stack
 
@@ -44,8 +44,11 @@ src/
     ui/                Button, fields (TextField/SelectField/TextAreaField), Section, ConfirmBar
     layout/            AppHeader (workspace tabs), SetupNav
     setup/             MatchDetailsForm, OfficialsForm, TeamSetup, RosterEditor, PlayerForm, SetupChecklist
-    pitch/             TacticalBoard (SVG + drag/keyboard), PitchMarkings, PlayerMarker, DrawingLayer, pitchTheme, labels
-    board/             BoardView (pitch + side panels), FormationPanel/SavedLayoutsPanel, PatternPanel, SelectionPanel
+    pitch/             TacticalBoard (SVG composition), useBoardInteraction (pointer state machine), PitchMarkings,
+                       PlayerMarker, DrawingLayer (shapes, LD badge, notes, endpoint handles), drawingPath (SVG path maths),
+                       drawingStyle, pitchTheme, labels, boardTypes (Tool, BoardSelection)
+    board/             BoardView (tools + pitch + side panels, keyboard shortcuts), DrawingToolbar, DrawingPanel/DrawingList,
+                       FormationPanel/SavedLayoutsPanel, PatternPanel, SelectionPanel, playerLabel, boardTestUtils (tests only)
   domain/              PURE TypeScript. No React, no DOM, no storage. Never call Date.now()/Math.random() here except ids.ts.
     types.ts           Core entity types
     ids.ts             `createId(prefix)` — the only place randomness is allowed
@@ -54,12 +57,14 @@ src/
     formations.ts      10 presets in the team frame
     layout.ts          11 fixed slots; template assignment, apply/reset formation, move, capture, isLayoutModified
     patterns.ts        12 tactical patterns (pure, team frame) + applyPattern → slots + tagged drawings
+    drawings.ts        Drawing kinds, lofted Bézier maths, hit testing, translate/reverse, freehand sampling, sanitizeDrawing
     squad.ts           Roster rules: add/update/remove, role changes, caps, shirt numbers, integrity check
     match.ts           createMatch, display names, date/time/duration validation, setup checklist issues
     testing.ts, fixtures.ts  Test helpers (emptyTeam, fullTeam 4-3-3 squad)
   store/
-    matchReducer.ts    Pure reducer + MatchAction union
-    MatchContext.tsx   <MatchProvider>, useMatch(), useMatchActions()
+    matchReducer.ts    Pure reducer + MatchAction union + BOARD_ACTION_TYPES
+    history.ts         Undo/redo wrapper (board snapshots: slot geometry by id, formations, drawings, saved layouts)
+    MatchContext.tsx   <MatchProvider>, useMatch(), useMatchActions(), useBoardHistory()
   lib/cn.ts            classnames helper
 ```
 
@@ -72,7 +77,7 @@ Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.
 - `Player` — `id`, `name`, `shirtNumber` (1–99, unique per team), `preferredPosition`, `notes`. Identity = `id`; name/number freely editable.
 - `LineupSlot` — `id` (stable for the team's lifetime), `playerId | null`, `position` (label from the formation, manually overridable), `x`, `y` (absolute canonical). **The slot owns the pitch position**; formations/patterns move slots, never reassign players. A player's role is *derived*: in a slot ⇒ starter, in `bench` ⇒ substitute.
 - `SavedLayout` — `id`, `name`, `baseFormation`, `slots: TemplateSlot[]` (team frame, reusable by either team). Stored on the match for now.
-- `Drawing` — `id`, `kind` (`'pass' | 'movement'` so far; Phase 3 adds shot/lofted/freehand), `from`, `to`, optional `fromPlayerId`/`toPlayerId` hints, optional `source: {patternId, teamId}` for pattern-generated arrows.
+- `Drawing` — `id`, `kind` (`pass | lofted | shot | movement | freehand`), `from`, `to`, `points?` (freehand only; from/to = first/last point), optional `fromPlayerId`/`toPlayerId` hints, `note?` (≤ 60 chars), `source?: {patternId, teamId}` for pattern-generated arrows (dropped as soon as the user edits the drawing). All stored drawings pass `sanitizeDrawing` (clamped, min length 1.5 m arrows / 1 m freehand).
 - `MatchEvent`, `ClockState` — see `docs/BUILD_PLAN.md` §2; not yet implemented.
 
 ## Invariants (do not break)
@@ -92,7 +97,9 @@ Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.
 13. **Reducers are pure.** IDs are generated by the dispatcher (`useMatchActions`) and passed in the action (pattern drawings use an `idSeed` → `${seed}-${n}`). Rejected operations return the *same* state object.
 14. Every team has exactly 11 slots with stable ids. Formation switches/resets/patterns re-position slots via `layout.ts` (label-first, then distance assignment) and **never** change which player is in which slot, the bench, or XI membership.
 15. Never silently discard a custom arrangement: if `isLayoutModified` is true, formation switches and pattern applies require an inline confirmation (`ConfirmBar`). Patterns always start from the formation defaults, so they don't compound.
-16. Pointer drags are local UI state and commit a single `slot/move` on pointer-up (keeps Phase 3 undo history clean). Board UI state (orientation, snap, selection) lives in `BoardView`, not in `Match`.
+16. **One gesture = one store action = one undo step.** Gestures live in `useBoardInteraction` state and commit on pointer-up (drag → `slot/move`/`drawing/move`, eraser sweep → one `drawings/delete`, note → on blur/Enter). Board UI state (tool, orientation, snap, selection) lives in `BoardView`, not in `Match`.
+17. **Pointer routing** is one handler set on the `<svg>` with pointer capture. Select tool: DOM target decides (handle → edit endpoint, marker → drag player, arrow → move arrow, grass → deselect). Drawing tools ignore targets and use `findPlayerAt` (pure) so pressing on a player starts an arrow *from* them and never moves them. Don't add pointer handlers to markers or shapes.
+18. **Undo history** (`store/history.ts`) records only `BOARD_ACTION_TYPES`. Snapshots hold slot *geometry* keyed by slot id (label, x, y), formation refs, drawings and saved layouts — never slot occupants or roster — so undo can't resurrect removed players or un-bench anyone. Setup actions bypass history and are never undone. No-op/rejected actions aren't recorded; limit 100. New board action types must be added to `BOARD_ACTION_TYPES`.
 
 ## Next.js 16 / hydration rules
 
@@ -107,6 +114,10 @@ Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.
 - Pointer → pitch mapping uses `getBoundingClientRect()` + `clientToPitch()` (pure, replicates `xMidYMid meet` letterboxing). Don't wrap the board in CSS transforms or this breaks.
 - SVG colours are hex constants in `components/pitch/pitchTheme.ts` (not CSS variables) so PNG export in Phase 6 matches the screen.
 - Markers are `role="button"`, focusable, with arrow-key nudge (1 m, Shift 5 m, never snapped), Enter/Space select, Esc deselect.
+- Z-order: markings → drawings → markers → endpoint handles. Drawings sit under markers so players stay grabbable; each drawing has an invisible 2.4 m hit stroke (pointer-events only in Select). Arrows that start/end on a player are trimmed (`drawingPath.ts`) so arrowheads stay visible; lofted curves are trimmed along the Bézier.
+- `touch-action`: `auto` on the svg in Select (grass scrolls the page; markers/handles are `none`), `none` in drawing tools.
+- Board shortcuts (ignored while typing in form fields): V/P/L/S/M/F/E tools, Ctrl/⌘+Z undo, Ctrl/⌘+Shift+Z or Ctrl+Y redo, Delete/Backspace delete selected drawing, Esc cancel gesture → deselect. Global listener uses `useEffectEvent` (writing refs during render fails the React Compiler lint).
+- Keyboard access to drawings is via the "Drawings" list in the side panel (selects; then edit/delete in the panel).
 
 ## Coding rules
 
@@ -128,7 +139,7 @@ npm test            # vitest run (single pass)
 npm run test:watch  # vitest watch mode
 ```
 
-Component tests drive the real UI through `<MatchWorkspace initialMatch={...} initialView="setup" | "board" />` using `@testing-library/user-event`. Board tests mock `SVGSVGElement.prototype.getBoundingClientRect` (jsdom has no layout) and use `fireEvent.pointer*` for drags. `src/components/hydration.test.tsx` guards the server/client render split.
+Component tests drive the real UI through `<MatchWorkspace initialMatch={...} initialView="setup" | "board" />` using `@testing-library/user-event`. Board tests use `components/board/boardTestUtils.ts` (`mockBoardLayout()` mocks `SVGSVGElement.prototype.getBoundingClientRect` since jsdom has no layout; `gesture`/`drag`/`marker`/`drawings` helpers fire `pointer*` events). `src/components/hydration.test.tsx` guards the server/client render split.
 
 ## Phase workflow & model switching
 

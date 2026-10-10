@@ -1,3 +1,4 @@
+import { sanitizeDrawing, translateDrawing } from '@/domain/drawings';
 import { getFormation } from '@/domain/formations';
 import { applyTemplate, captureLayout, moveSlot, resetToFormation, resolveTemplate } from '@/domain/layout';
 import { getTeam } from '@/domain/match';
@@ -13,6 +14,7 @@ import {
 } from '@/domain/squad';
 import type { PlayerDraft, SquadResult } from '@/domain/squad';
 import type {
+  Drawing,
   FormationRef,
   Id,
   LineupRole,
@@ -25,6 +27,9 @@ import type {
 } from '@/domain/types';
 
 export type TeamPatch = Partial<Pick<Team, 'name' | 'coach'>>;
+
+/** Editable fields of a drawing. `undefined` player ids clear the hint. */
+export type DrawingPatch = Partial<Pick<Drawing, 'kind' | 'from' | 'to' | 'fromPlayerId' | 'toPlayerId' | 'note'>>;
 
 export const MAX_LAYOUT_NAME_LENGTH = 40;
 
@@ -47,7 +52,44 @@ export type MatchAction =
   | { type: 'layout/save'; side: TeamSide; layoutId: Id; name: string }
   | { type: 'layout/delete'; layoutId: Id }
   | { type: 'pattern/apply'; side: TeamSide; patternId: PatternId; idSeed: Id }
-  | { type: 'drawings/clear' };
+  | { type: 'drawings/clear' }
+  | { type: 'drawing/add'; drawing: Drawing }
+  | { type: 'drawing/update'; id: Id; patch: DrawingPatch }
+  | { type: 'drawing/move'; id: Id; delta: Point }
+  | { type: 'drawings/delete'; ids: Id[] };
+
+/** Action types that change the tactical board and therefore enter undo history. */
+export const BOARD_ACTION_TYPES = new Set<MatchAction['type']>([
+  'slot/move',
+  'slot/setPosition',
+  'formation/apply',
+  'formation/reset',
+  'layout/save',
+  'layout/delete',
+  'pattern/apply',
+  'drawings/clear',
+  'drawing/add',
+  'drawing/update',
+  'drawing/move',
+  'drawings/delete',
+]);
+
+/**
+ * Replaces one drawing after re-validating it. User edits detach a
+ * pattern-generated arrow (drop `source`) so re-applying the pattern won't
+ * delete it. Invalid results (e.g. shrunk below the minimum) are rejected.
+ */
+function replaceDrawing(match: Match, id: Id, edit: (d: Drawing) => Drawing): Match {
+  const index = match.drawings.findIndex((d) => d.id === id);
+  if (index < 0) return match;
+  const edited = edit(match.drawings[index]);
+  delete edited.source;
+  const clean = sanitizeDrawing(edited);
+  if (!clean) return match;
+  const drawings = [...match.drawings];
+  drawings[index] = clean;
+  return { ...match, drawings };
+}
 
 function withTeam(match: Match, side: TeamSide, team: Team): Match {
   return side === 'home' ? { ...match, home: team } : { ...match, away: team };
@@ -154,5 +196,28 @@ export function matchReducer(match: Match, action: MatchAction): Match {
 
     case 'drawings/clear':
       return match.drawings.length === 0 ? match : { ...match, drawings: [] };
+
+    case 'drawing/add': {
+      if (match.drawings.some((d) => d.id === action.drawing.id)) return match;
+      const clean = sanitizeDrawing({ ...action.drawing, source: undefined });
+      return clean ? { ...match, drawings: [...match.drawings, clean] } : match;
+    }
+
+    case 'drawing/update':
+      return replaceDrawing(match, action.id, (d) => {
+        const next: Drawing = { ...d, ...action.patch };
+        // Freehand stays freehand and arrows stay arrows (shape data differs).
+        if ((d.kind === 'freehand') !== (next.kind === 'freehand')) next.kind = d.kind;
+        return next;
+      });
+
+    case 'drawing/move':
+      return replaceDrawing(match, action.id, (d) => translateDrawing(d, action.delta));
+
+    case 'drawings/delete': {
+      const ids = new Set(action.ids);
+      const drawings = match.drawings.filter((d) => !ids.has(d.id));
+      return drawings.length === match.drawings.length ? match : { ...match, drawings };
+    }
   }
 }

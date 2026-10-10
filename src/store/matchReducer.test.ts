@@ -137,3 +137,60 @@ describe('matchReducer: board actions', () => {
     expect(m.home.slots.find((s) => s.id === slot.id)).toMatchObject({ position: 'CF', x: slot.x, y: slot.y });
   });
 });
+
+describe('matchReducer: drawing actions', () => {
+  const pass = (id: string) => ({
+    id,
+    kind: 'pass' as const,
+    from: { x: 0.2, y: 0.4 },
+    to: { x: 0.45, y: 0.4 },
+  });
+
+  it('adds sanitised user drawings and ignores duplicates or tiny gestures', () => {
+    let m = createMatch();
+    m = matchReducer(m, { type: 'drawing/add', drawing: { ...pass('a'), to: { x: 1.3, y: 0.4 }, source: { patternId: 'x', teamId: 't' } } });
+    expect(m.drawings).toEqual([{ id: 'a', kind: 'pass', from: { x: 0.2, y: 0.4 }, to: { x: 1, y: 0.4 } }]);
+    expect(matchReducer(m, { type: 'drawing/add', drawing: pass('a') })).toBe(m);
+    expect(matchReducer(m, { type: 'drawing/add', drawing: { ...pass('b'), to: { x: 0.201, y: 0.4 } } })).toBe(m);
+  });
+
+  it('converts a pass to a lofted pass and adds a note without moving it', () => {
+    let m = matchReducer(createMatch(), { type: 'drawing/add', drawing: pass('a') });
+    m = matchReducer(m, { type: 'drawing/update', id: 'a', patch: { kind: 'lofted', note: 'Switch play' } });
+    expect(m.drawings[0]).toMatchObject({ kind: 'lofted', note: 'Switch play', from: pass('a').from, to: pass('a').to });
+  });
+
+  it('edits an endpoint, attaching or detaching a player hint', () => {
+    let m = matchReducer(createMatch(), { type: 'drawing/add', drawing: pass('a') });
+    m = matchReducer(m, { type: 'drawing/update', id: 'a', patch: { to: { x: 0.6, y: 0.2 }, toPlayerId: 'p9' } });
+    expect(m.drawings[0]).toMatchObject({ to: { x: 0.6, y: 0.2 }, toPlayerId: 'p9' });
+    m = matchReducer(m, { type: 'drawing/update', id: 'a', patch: { to: { x: 0.7, y: 0.2 }, toPlayerId: undefined } });
+    expect('toPlayerId' in m.drawings[0]).toBe(false);
+  });
+
+  it('detaches pattern arrows when the user edits them, so re-applying keeps them', () => {
+    let m = { ...createMatch(), home: fullTeam('home') };
+    m = matchReducer(m, { type: 'pattern/apply', side: 'home', patternId: 'overlap', idSeed: 's' });
+    const edited = m.drawings[0].id;
+    m = matchReducer(m, { type: 'drawing/update', id: edited, patch: { note: 'mine now' } });
+    expect(m.drawings.find((d) => d.id === edited)?.source).toBeUndefined();
+    m = matchReducer(m, { type: 'pattern/apply', side: 'home', patternId: 'high-press', idSeed: 't' });
+    expect(m.drawings.some((d) => d.id === edited)).toBe(true);
+  });
+
+  it('refuses to turn an arrow into freehand (or back)', () => {
+    let m = matchReducer(createMatch(), { type: 'drawing/add', drawing: pass('a') });
+    m = matchReducer(m, { type: 'drawing/update', id: 'a', patch: { kind: 'freehand' } });
+    expect(m.drawings[0].kind).toBe('pass');
+  });
+
+  it('moves and deletes drawings', () => {
+    let m = matchReducer(createMatch(), { type: 'drawing/add', drawing: pass('a') });
+    m = matchReducer(m, { type: 'drawing/add', drawing: pass('b') });
+    m = matchReducer(m, { type: 'drawing/move', id: 'a', delta: { x: 0.1, y: 0.1 } });
+    expect(m.drawings[0].from.x).toBeCloseTo(0.3);
+    m = matchReducer(m, { type: 'drawings/delete', ids: ['a', 'zzz'] });
+    expect(m.drawings.map((d) => d.id)).toEqual(['b']);
+    expect(matchReducer(m, { type: 'drawings/delete', ids: ['nope'] })).toBe(m);
+  });
+});

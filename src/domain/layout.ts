@@ -202,3 +202,34 @@ export function pickEmptySlot(slots: readonly LineupSlot[], preferred: PositionC
   }
   return best;
 }
+
+export interface SlotHit {
+  side: TeamSide;
+  slotId: Id;
+  playerId: Id;
+  point: Point;
+}
+
+/**
+ * The nearest *occupied* slot within `radiusMetres` of a point, across both
+ * teams. Used to start/end arrows on a player without relying on DOM hit tests.
+ */
+export function findPlayerAt(
+  teams: { home: Team; away: Team },
+  point: Point,
+  radiusMetres: number,
+): SlotHit | null {
+  let best: SlotHit | null = null;
+  let bestDistance = Infinity;
+  for (const side of ['home', 'away'] as const) {
+    for (const slot of teams[side].slots) {
+      if (!slot.playerId) continue;
+      const d = distanceMetres(slot, point);
+      if (d <= radiusMetres && d < bestDistance) {
+        best = { side, slotId: slot.id, playerId: slot.playerId, point: { x: slot.x, y: slot.y } };
+        bestDistance = d;
+      }
+    }
+  }
+  return best;
+}

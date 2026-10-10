@@ -1,63 +1,24 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fullTeam } from '@/domain/fixtures';
 import { toView, viewBoxFor } from '@/domain/geometry';
 import { createMatch } from '@/domain/match';
 import type { Match } from '@/domain/types';
 import { MatchWorkspace } from '@/components/MatchWorkspace';
-
-const SCALE = 10; // px per metre in the mocked layout
-let rect = { left: 0, top: 0, width: 0, height: 0 };
+import { board, drag, marker, matchWithSquads, mockBoardLayout, rect, toClient, translate } from './boardTestUtils';
 
 beforeEach(() => {
-  const vb = viewBoxFor('landscape');
-  rect = { left: 0, top: 0, width: vb.width * SCALE, height: vb.height * SCALE };
-  // jsdom has no layout: give the <svg> a size so pointer → pitch mapping works.
-  vi.spyOn(SVGSVGElement.prototype, 'getBoundingClientRect').mockImplementation(
-    () => ({ ...rect, x: rect.left, y: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height, toJSON: () => ({}) }) as DOMRect,
-  );
+  mockBoardLayout();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function matchWithSquads(): Match {
-  const m = createMatch();
-  return {
-    ...m,
-    home: { ...fullTeam('home'), name: 'Home FC' },
-    away: { ...fullTeam('away'), name: 'Away FC' },
-  };
-}
-
 function setup(match: Match = matchWithSquads()) {
   const user = userEvent.setup();
   render(<MatchWorkspace initialMatch={match} />);
   return user;
-}
-
-const board = () => screen.getByRole('group', { name: /tactical board/i });
-/** A home-team marker (both fixture squads share player names). */
-const marker = (label: string) =>
-  within(board()).getByRole('button', { name: new RegExp(`^Home FC: ${label}\\b`) });
-const translate = (el: Element) => {
-  const m = /translate\(([-\d.e]+) ([-\d.e]+)\)/.exec(el.getAttribute('transform') ?? '');
-  if (!m) throw new Error('no transform');
-  return { x: Number(m[1]), y: Number(m[2]) };
-};
-/** Client pixel position of a view-unit point under the mocked rect. */
-const toClient = (v: { x: number; y: number }) => {
-  const vb = viewBoxFor('landscape');
-  return { clientX: rect.left + (v.x - vb.x) * SCALE, clientY: rect.top + (v.y - vb.y) * SCALE };
-};
-
-function drag(el: Element, toViewPoint: { x: number; y: number }) {
-  const start = toClient(translate(el));
-  fireEvent.pointerDown(el, { ...start, pointerId: 1, button: 0 });
-  fireEvent.pointerMove(el, { ...toClient(toViewPoint), pointerId: 1 });
-  fireEvent.pointerUp(el, { ...toClient(toViewPoint), pointerId: 1 });
 }
 
 describe('BoardView', () => {
@@ -87,7 +48,7 @@ describe('BoardView', () => {
     expect(after.y).toBeCloseTo(target.y, 6);
 
     // Resize: markers are positioned in viewBox units, so nothing moves...
-    rect = { left: 30, top: 12, width: rect.width * 1.7, height: rect.height * 1.2 };
+    Object.assign(rect, { left: 30, top: 12, width: rect.width * 1.7, height: rect.height * 1.2 });
     fireEvent.pointerDown(document.body);
     expect(translate(marker('#9 Striker'))).toEqual(after);
     // ...and a drag at the new size still lands on the intended pitch point.
@@ -194,23 +155,23 @@ describe('BoardView', () => {
     expect(within(awayPanel).getByLabelText('Formation')).toHaveValue('preset:4-3-3');
   });
 
-  it('applies a tactical pattern with arrows, then clears arrows without moving players', async () => {
+  it('applies a tactical pattern with arrows, then clears annotations without moving players', async () => {
     const user = setup();
     const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
     await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Overlapping full-back');
     await user.click(within(patterns).getByRole('button', { name: /apply to home fc/i }));
 
-    const arrows = () => board().querySelectorAll('line[data-kind]');
+    const arrows = () => board().querySelectorAll('[data-drawing-id]');
     expect(arrows().length).toBeGreaterThan(0);
-    expect(board().querySelectorAll('line[data-kind="movement"]').length).toBeGreaterThan(0);
-    expect(board().querySelectorAll('line[data-kind="pass"]').length).toBeGreaterThan(0);
+    expect(board().querySelectorAll('[data-drawing-id][data-kind="movement"]').length).toBeGreaterThan(0);
+    expect(board().querySelectorAll('[data-drawing-id][data-kind="pass"]').length).toBeGreaterThan(0);
 
     const positions = within(board()).getAllByRole('button').map(translate);
-    await user.click(within(patterns).getByRole('button', { name: /clear arrows/i }));
-    await user.click(within(patterns).getByRole('button', { name: 'Clear arrows' }));
+    await user.click(screen.getByRole('button', { name: /clear annotations/i }));
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
     expect(arrows()).toHaveLength(0);
     expect(within(board()).getAllByRole('button').map(translate)).toEqual(positions);
-    expect(within(patterns).getByRole('button', { name: /clear arrows/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /clear annotations/i })).toBeDisabled();
   });
 
   it('asks before a pattern overwrites custom positions', async () => {
@@ -220,10 +181,10 @@ describe('BoardView', () => {
     await user.click(within(patterns).getByRole('button', { name: /apply to home fc/i }));
     expect(within(patterns).getByRole('alertdialog')).toHaveTextContent(/custom positions/);
     await user.click(within(patterns).getByRole('button', { name: 'Cancel' }));
-    expect(board().querySelectorAll('line[data-kind]')).toHaveLength(0);
+    expect(board().querySelectorAll('[data-drawing-id]')).toHaveLength(0);
     await user.click(within(patterns).getByRole('button', { name: /apply to home fc/i }));
     await user.click(within(patterns).getByRole('button', { name: 'Apply anyway' }));
-    expect(board().querySelectorAll('line[data-kind]').length).toBeGreaterThan(0);
+    expect(board().querySelectorAll('[data-drawing-id]').length).toBeGreaterThan(0);
   });
 
   it('overrides the position label from the selection panel', async () => {

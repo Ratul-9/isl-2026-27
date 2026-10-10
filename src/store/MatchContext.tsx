@@ -14,12 +14,29 @@ import type { MatchInfoPatch } from '@/domain/match';
 import { validatePlayerDraft, validateRoleChange } from '@/domain/squad';
 import type { PlayerDraft, PlayerDraftErrors } from '@/domain/squad';
 import type { PatternId } from '@/domain/patterns';
-import type { FormationRef, Id, LineupRole, Match, Officials, Point, PositionCode, TeamSide } from '@/domain/types';
-import { matchReducer } from './matchReducer';
-import type { MatchAction, TeamPatch } from './matchReducer';
+import type {
+  Drawing,
+  FormationRef,
+  Id,
+  LineupRole,
+  Match,
+  Officials,
+  Point,
+  PositionCode,
+  TeamSide,
+} from '@/domain/types';
+import { createHistory, historyReducer } from './history';
+import type { HistoryAction } from './history';
+import type { DrawingPatch, TeamPatch } from './matchReducer';
+
+interface HistoryFlags {
+  canUndo: boolean;
+  canRedo: boolean;
+}
 
 const MatchStateContext = createContext<Match | null>(null);
-const MatchDispatchContext = createContext<Dispatch<MatchAction> | null>(null);
+const HistoryFlagsContext = createContext<HistoryFlags>({ canUndo: false, canRedo: false });
+const MatchDispatchContext = createContext<Dispatch<HistoryAction> | null>(null);
 
 const subscribeNever = () => () => {};
 
@@ -37,10 +54,15 @@ function ClientOnly({ children, fallback }: { children: ReactNode; fallback: Rea
 }
 
 function MatchStateProvider({ initialMatch, children }: { initialMatch?: Match; children: ReactNode }) {
-  const [match, dispatch] = useReducer(matchReducer, initialMatch, (m) => m ?? createMatch());
+  const [state, dispatch] = useReducer(historyReducer, initialMatch, (m) => createHistory(m ?? createMatch()));
+  const canUndo = state.past.length > 0;
+  const canRedo = state.future.length > 0;
+  const flags = useMemo(() => ({ canUndo, canRedo }), [canUndo, canRedo]);
   return (
-    <MatchStateContext.Provider value={match}>
-      <MatchDispatchContext.Provider value={dispatch}>{children}</MatchDispatchContext.Provider>
+    <MatchStateContext.Provider value={state.match}>
+      <HistoryFlagsContext.Provider value={flags}>
+        <MatchDispatchContext.Provider value={dispatch}>{children}</MatchDispatchContext.Provider>
+      </HistoryFlagsContext.Provider>
     </MatchStateContext.Provider>
   );
 }
@@ -85,6 +107,11 @@ export interface MatchActions {
   deleteLayout(layoutId: Id): void;
   applyPattern(side: TeamSide, patternId: PatternId): void;
   clearDrawings(): void;
+  /** Adds a drawing (id generated here); returns the new id. */
+  addDrawing(drawing: Omit<Drawing, 'id'>): Id;
+  updateDrawing(id: Id, patch: DrawingPatch): void;
+  moveDrawing(id: Id, delta: Point): void;
+  deleteDrawings(ids: Id[]): void;
 }
 
 /** Action helpers: generate IDs, validate against current state, then dispatch. */
@@ -133,7 +160,37 @@ export function useMatchActions(): MatchActions {
       applyPattern: (side, patternId) =>
         dispatch({ type: 'pattern/apply', side, patternId, idSeed: createId('drw') }),
       clearDrawings: () => dispatch({ type: 'drawings/clear' }),
+      addDrawing: (drawing) => {
+        const id = createId('drw');
+        dispatch({ type: 'drawing/add', drawing: { ...drawing, id } });
+        return id;
+      },
+      updateDrawing: (id, patch) => dispatch({ type: 'drawing/update', id, patch }),
+      moveDrawing: (id, delta) => dispatch({ type: 'drawing/move', id, delta }),
+      deleteDrawings: (ids) => {
+        if (ids.length > 0) dispatch({ type: 'drawings/delete', ids });
+      },
     }),
     [dispatch, match],
+  );
+}
+
+export interface BoardHistory extends HistoryFlags {
+  undo(): void;
+  redo(): void;
+}
+
+/** Undo/redo for tactical-board changes (see `store/history.ts`). */
+export function useBoardHistory(): BoardHistory {
+  const flags = useContext(HistoryFlagsContext);
+  const dispatch = useContext(MatchDispatchContext);
+  if (!dispatch) throw new Error('useBoardHistory must be used inside <MatchProvider>.');
+  return useMemo(
+    () => ({
+      ...flags,
+      undo: () => dispatch({ type: 'history/undo' }),
+      redo: () => dispatch({ type: 'history/redo' }),
+    }),
+    [flags, dispatch],
   );
 }

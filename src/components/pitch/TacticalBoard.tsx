@@ -1,35 +1,20 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import type { KeyboardEvent, PointerEvent } from 'react';
-import { clampPoint, clientToPitch, distanceMetres, nudge, snapPoint, toView, viewBoxFor } from '@/domain/geometry';
+import { useImperativeHandle, useRef } from 'react';
+import type { KeyboardEvent, Ref } from 'react';
+import { nudge, toView, viewBoxFor } from '@/domain/geometry';
 import type { Direction, Orientation } from '@/domain/geometry';
 import { teamDisplayName } from '@/domain/match';
-import type { Id, LineupSlot, Player, Point, TeamSide } from '@/domain/types';
+import type { Id, LineupSlot, Player, TeamSide } from '@/domain/types';
 import { useMatch, useMatchActions } from '@/store/MatchContext';
-import { DrawingDefs, DrawingLayer } from './DrawingLayer';
+import type { BoardSelection, Tool } from './boardTypes';
+import { DrawingDefs, DrawingLayer, EndpointHandles } from './DrawingLayer';
 import { PitchMarkings } from './PitchMarkings';
 import { PlayerMarker } from './PlayerMarker';
+import { useBoardInteraction } from './useBoardInteraction';
 
-export interface SlotRef {
-  side: TeamSide;
-  slotId: Id;
-}
-
-interface DragState extends SlotRef {
-  pointerId: number;
-  /** Pointer position minus slot position at grab time, so the marker doesn't jump. */
-  offset: Point;
-  start: Point;
-  current: Point;
-  moved: boolean;
-}
-
-/** Movement below this (metres) is treated as a click, not a drag. */
-const DRAG_THRESHOLD_METRES = 0.3;
 const KEY_STEP_METRES = 1;
 const KEY_STEP_LARGE_METRES = 5;
-
 const ARROW_KEYS: Record<string, Direction> = {
   ArrowUp: 'up',
   ArrowDown: 'down',
@@ -37,93 +22,70 @@ const ARROW_KEYS: Record<string, Direction> = {
   ArrowRight: 'right',
 };
 
+export interface TacticalBoardHandle {
+  /** Abandons the gesture in progress (e.g. on Escape). Returns true if one was active. */
+  cancelGesture(): boolean;
+}
+
 interface TacticalBoardProps {
   orientation: Orientation;
   snap: boolean;
-  selected: SlotRef | null;
-  onSelect: (slot: SlotRef | null) => void;
+  tool: Tool;
+  selection: BoardSelection;
+  onSelect: (selection: BoardSelection) => void;
+  ref?: Ref<TacticalBoardHandle>;
 }
 
-export function TacticalBoard({ orientation, snap, selected, onSelect }: TacticalBoardProps) {
+export function TacticalBoard({ orientation, snap, tool, selection, onSelect, ref }: TacticalBoardProps) {
   const match = useMatch();
   const { moveSlot } = useMatchActions();
   const svgRef = useRef<SVGSVGElement>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  const board = useBoardInteraction({ svgRef, orientation, snap, tool, selection, onSelect });
   const vb = viewBoxFor(orientation);
+  const selectedDrawingId = selection?.type === 'drawing' ? selection.id : null;
 
-  function pointerToPitch(e: PointerEvent): Point | null {
-    const svg = svgRef.current;
-    if (!svg) return null;
-    return clientToPitch({ x: e.clientX, y: e.clientY }, svg.getBoundingClientRect(), orientation);
-  }
+  useImperativeHandle(ref, () => ({
+    cancelGesture: () => {
+      const active = board.interaction !== null;
+      board.cancel();
+      return active;
+    },
+  }));
 
-  function handlersFor(side: TeamSide, slot: LineupSlot) {
-    const ref = { side, slotId: slot.id };
-    const isThisDrag = (e: PointerEvent) => drag?.slotId === slot.id && drag.pointerId === e.pointerId;
-
-    return {
-      onPointerDown: (e: PointerEvent<SVGGElement>) => {
-        if (e.button !== 0 || drag) return;
-        const p = pointerToPitch(e);
-        onSelect(ref);
-        if (!p) return;
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-        const start = { x: slot.x, y: slot.y };
-        setDrag({ ...ref, pointerId: e.pointerId, offset: { x: p.x - slot.x, y: p.y - slot.y }, start, current: start, moved: false });
-      },
-      onPointerMove: (e: PointerEvent<SVGGElement>) => {
-        if (!drag || !isThisDrag(e)) return;
-        const p = pointerToPitch(e);
-        if (!p) return;
-        const raw = clampPoint({ x: p.x - drag.offset.x, y: p.y - drag.offset.y });
-        const current = snap ? snapPoint(raw) : raw;
-        const moved = drag.moved || distanceMetres(drag.start, current) > DRAG_THRESHOLD_METRES;
-        setDrag({ ...drag, current, moved });
-      },
-      onPointerUp: (e: PointerEvent<SVGGElement>) => {
-        if (!drag || !isThisDrag(e)) return;
-        if (drag.moved) moveSlot(side, slot.id, drag.current);
-        setDrag(null);
-      },
-      onPointerCancel: (e: PointerEvent<SVGGElement>) => {
-        if (drag && isThisDrag(e)) setDrag(null);
-      },
-      onKeyDown: (e: KeyboardEvent<SVGGElement>) => {
-        const direction = ARROW_KEYS[e.key];
-        if (direction) {
-          e.preventDefault();
-          const step = e.shiftKey ? KEY_STEP_LARGE_METRES : KEY_STEP_METRES;
-          // Not snapped: a 1 m step would round straight back onto the 2.5 m grid.
-          moveSlot(side, slot.id, nudge({ x: slot.x, y: slot.y }, direction, step, orientation));
-          onSelect(ref);
-        } else if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect(ref);
-        } else if (e.key === 'Escape') {
-          onSelect(null);
-        }
-      },
-    };
+  function onMarkerKeyDown(side: TeamSide, slot: LineupSlot, e: KeyboardEvent<SVGGElement>) {
+    const ref = { type: 'slot' as const, side, slotId: slot.id };
+    const direction = ARROW_KEYS[e.key];
+    if (direction) {
+      e.preventDefault();
+      const step = e.shiftKey ? KEY_STEP_LARGE_METRES : KEY_STEP_METRES;
+      // Not snapped: a 1 m step would round straight back onto the 2.5 m grid.
+      moveSlot(side, slot.id, nudge({ x: slot.x, y: slot.y }, direction, step, orientation));
+      onSelect(ref);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect(ref);
+    }
   }
 
   function markersFor(side: TeamSide) {
-    const team = side === 'home' ? match.home : match.away;
+    const team = match[side];
     const players = new Map<Id, Player>(team.players.map((p) => [p.id, p]));
     const name = teamDisplayName(team, side);
     return team.slots.map((slot) => {
-      const isDragging = drag?.slotId === slot.id;
-      const point = isDragging ? drag.current : slot;
+      const live = board.slotPosition(slot.id);
       return (
         <PlayerMarker
           key={slot.id}
+          slotId={slot.id}
           side={side}
           teamName={name}
-          view={toView(point, orientation)}
+          view={toView(live ?? slot, orientation)}
           position={slot.position}
           player={slot.playerId ? (players.get(slot.playerId) ?? null) : null}
-          selected={selected?.slotId === slot.id}
-          dragging={isDragging}
-          {...handlersFor(side, slot)}
+          selected={selection?.type === 'slot' && selection.slotId === slot.id}
+          dragging={live !== null}
+          draggable={tool === 'select'}
+          onKeyDown={(e) => onMarkerKeyDown(side, slot, e)}
         />
       );
     });
@@ -135,18 +97,31 @@ export function TacticalBoard({ orientation, snap, selected, onSelect }: Tactica
       viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
       role="group"
       aria-label={`Tactical board, ${orientation}`}
-      className="block h-auto max-h-[calc(100vh-9rem)] w-full select-none"
-      style={{ fontFamily: 'var(--font-sans)' }}
-      onPointerDown={(e) => {
-        // Clicking empty grass clears the selection.
-        if (e.target === e.currentTarget || (e.target as Element).closest('[aria-hidden]')) onSelect(null);
+      data-tool={tool}
+      className="block h-auto max-h-[calc(100vh-11rem)] w-full select-none"
+      style={{
+        fontFamily: 'var(--font-sans)',
+        // Drawing tools own every touch on the pitch; in select mode the grass still scrolls the page.
+        touchAction: tool === 'select' ? 'auto' : 'none',
+        cursor: tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair',
       }}
+      {...board.handlers}
     >
       <DrawingDefs />
       <PitchMarkings orientation={orientation} />
+      {/* Arrows sit under the markers so players stay easy to grab; handles go on top. */}
+      <DrawingLayer
+        drawings={board.drawings}
+        orientation={orientation}
+        selectedId={selectedDrawingId}
+        interactive={tool === 'select'}
+        draft={board.draft}
+      />
       <g aria-label="Home team">{markersFor('home')}</g>
       <g aria-label="Away team">{markersFor('away')}</g>
-      <DrawingLayer drawings={match.drawings} orientation={orientation} />
+      {tool === 'select' ? (
+        <EndpointHandles drawing={board.drawings.find((d) => d.id === selectedDrawingId)} orientation={orientation} />
+      ) : null}
     </svg>
   );
 }

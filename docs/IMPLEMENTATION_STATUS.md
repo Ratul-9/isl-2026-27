@@ -6,96 +6,98 @@ Authoritative handoff document. Update at the end of every phase. If code and th
 
 | Item | Value |
 |---|---|
-| Last completed phase | **Phase 2 — Pitch, Formations and Player Dragging** |
-| Next phase | **Phase 3 — Tactical Drawing Engine** |
+| Last completed phase | **Phase 3 — Tactical Drawing Engine** |
+| Next phase | **Phase 4 — Match Domain Logic and Timekeeping** |
 | Recommended model for next phase | **Opus** |
 | Last updated | 2026-10-10 |
-| Version control | Git repo initialised by the user after Phase 1, **no commits yet**. Phase 2 work is uncommitted (Claude does not commit unless asked). |
+| Version control | User committed Phases 1–2 (`0af568f`). **Phase 3 work is uncommitted** (Claude does not commit unless asked). |
 
 ## What works now
 
-Single workspace at `/`, one in-memory match created on the client. Header tabs switch between **Board** (default) and **Setup**.
+Single workspace at `/`, one in-memory match created on the client. Header tabs: **Board** (default) / **Setup**.
 
-**Setup (Phase 1, unchanged behaviour):** match details, four officials, both teams' names/coaches, roster editor (≤ 22 players, ≤ 11 starters, ≤ 11 subs, unique shirt numbers per team, XI ↔ bench moves, "Plays as" override, remove-with-confirm), live setup checklist.
+**Setup (Phase 1):** match details, four officials, team names/coaches, roster editor (≤ 22 players, ≤ 11 starters, ≤ 11 subs, unique shirt numbers per team, XI ↔ bench, "Plays as" override, remove-with-confirm), setup checklist.
 
-**Board (Phase 2):**
-- SVG pitch with all markings (touchlines, goal lines, halfway line, centre circle + spot, penalty and goal areas, penalty spots and arcs, goals, corner arcs), subtle stripes; **landscape and portrait** toggle (portrait = home goal at the bottom). Scales with the container; positions are viewBox-relative so resizing never moves players.
-- **Both teams on one board**, each in its own half: home blue markers attacking right, away white markers attacking left. Marker = shirt number, surname label, position abbreviation; empty positions shown as dashed ghosts; full name + position in the tooltip/accessible name and the selection panel.
-- **Formations:** 4-3-3, 4-2-3-1, 4-4-2, 4-1-4-1, 4-3-2-1, 3-5-2, 3-4-3, 3-4-2-1, 5-3-2, 5-4-1, independently per team. Switching moves the actual markers, relabels positions, keeps every player's identity and XI/bench membership (e.g. a 4-3-3 left back becomes the LWB in 3-5-2).
-- **Dragging:** pointer (mouse/touch/pen) with pointer capture; click selects without moving (0.3 m threshold); optional **snap to grid** (2.5 m × ~2.8 m); clamped to the pitch. **Keyboard:** markers are focusable buttons — arrows nudge 1 m (Shift 5 m), Enter/Space select, Esc deselect.
-- **Reset to formation** (enabled only when positions differ); "Custom positions" badge.
-- **Saved arrangements:** save the current team layout by name; appears in both teams' formation lists (mirrored correctly for away); delete with inline confirmation (teams using it fall back to its base preset).
-- **Tactical pattern library (12):** High press, Mid-block, Low block, Build-up from the back, Overlapping full-back, Underlapping full-back, Wide overload, Central overload, Counterattack, Counter-press, Positional rotations, Set piece (attacking corner). Each moves the chosen team into a shape (computed from formation defaults, so never compounding) and adds yellow pass / white dashed movement arrows. Re-applying replaces that team's previous pattern arrows. **Non-destructive:** applying a pattern or switching formation over custom positions asks first.
-- **Clear arrows** (with confirmation) removes all arrows and leaves the lineup untouched.
-- Selection panel: selected player's details + "Plays as" position override (also works on empty positions).
+**Board (Phase 2):** SVG pitch (landscape/portrait), both teams with numbered/labelled markers, 10 formations per team with identity-preserving switching, drag/keyboard positioning with optional snap, reset to formation, saved arrangements, 12 tactical patterns with confirm-before-overwrite.
+
+**Drawing engine (Phase 3):**
+- **Toolbar** (`role="toolbar"`): Select (V), Pass (P), Lofted (L), Shot (S), Run (M), Draw/freehand (F), Erase (E). Active tool is highlighted green with a colour swatch per kind, plus a live hint line ("Pass tool — drag from a player…").
+- **Arrow styles:** pass = yellow; **lofted = yellow curved arrow with an "LD" badge on the arrow**; shot = red (thicker); movement = white dashed; freehand = light-blue line. Arrowheads per colour.
+- **Drawing:** drag from a player or any point; releasing on a player ends the arrow at them (player hints `fromPlayerId`/`toPlayerId`); clicks shorter than 1.5 m make nothing; Esc cancels an arrow in progress. Pressing on a player in a drawing tool **never moves the player**. Snap-to-grid applies to free endpoints.
+- **Editing (Select tool):** click an arrow to select it (wide invisible hit area); drag the arrow to move it; drag its white endpoint handles to move either end (snaps onto/off players); side panel to change type (incl. "Make lofted pass (LD)" / "Make ground pass"), add a note (shown beside the arrow; committed on Enter/blur), reverse direction, delete. Delete/Backspace deletes; Esc deselects. A "Drawings" list in the side panel gives keyboard access to every drawing.
+- **Eraser:** click or sweep; removes drawings only, one undo step per sweep.
+- **Clear annotations** (toolbar, inline confirm) removes all drawings and keeps the lineup. (The duplicate "Clear arrows" in the pattern panel was removed.)
+- **Undo / redo** buttons and Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y for every board change: player drags/nudges, position relabels, formation switches/resets, saved-layout save/delete, patterns, and all drawing operations. Setup/roster edits are not undoable and are never reverted by undo.
+- Pattern arrows become user-owned once edited (re-applying a pattern no longer replaces them).
+- Touch: in Select the grass still scrolls the page while markers/handles capture touch; in drawing tools the whole pitch captures touch.
 
 ## What does NOT exist yet
 
-Drawing tools (draw/select/edit/delete arrows, shot/lofted "LD"/freehand, eraser), undo/redo (Phase 3); clock, goals, substitution events, cards, timeline, scoreboard (4–5); persistence, match library, JSON/PNG export (6). **Data is lost on refresh** until Phase 6. Arrows currently come only from patterns and are read-only.
+Clock, periods, goals, substitution events, cards, timeline, scoreboard (Phases 4–5); persistence, match library, JSON/PNG export (6). **Data is lost on refresh** until Phase 6.
 
-## Files changed in Phase 2
+## Files changed in Phase 3
 
 | Area | Files |
 |---|---|
-| Domain (new) | `geometry.ts`, `formations.ts`, `layout.ts`, `patterns.ts`, `fixtures.ts` (+ `geometry.test.ts`, `formations.test.ts`, `layout.test.ts`, `patterns.test.ts`) |
-| Domain (changed) | `types.ts` (Point, FormationId/Ref, slot x/y, Team.formation, TemplateSlot, SavedLayout, Drawing, Match.drawings/savedLayouts), `squad.ts` (fixed slots: fill/empty instead of add/remove; `setSlotPosition`; integrity checks for slot count/ids/bounds; no slot-id params), `match.ts` (`createTeam(side)` with 11 slots in 4-3-3), `testing.ts` |
-| Store | `matchReducer.ts` (new actions: `slot/move`, `slot/setPosition`, `formation/apply`, `formation/reset`, `layout/save`, `layout/delete`, `pattern/apply`, `drawings/clear`; `player/add` now takes `playerId`), `MatchContext.tsx` (matching helpers in `useMatchActions`) |
-| UI (new) | `components/pitch/{TacticalBoard,PitchMarkings,PlayerMarker,DrawingLayer}.tsx`, `pitch/{pitchTheme,labels}.ts`, `components/board/{BoardView,FormationPanel,PatternPanel,SelectionPanel}.tsx`, `board/formationOptions.ts`, `ui/ConfirmBar.tsx` |
-| UI (changed) | `MatchWorkspace.tsx` (Board/Setup views, `initialView` prop), `layout/AppHeader.tsx` (workspace tabs), `setup/RosterEditor.tsx` (override by slot id), `ui/Button.tsx` (accepts `ref`), `app/globals.css` (marker focus ring) |
-| Tests | new `components/board/BoardView.test.tsx`, `components/pitch/labels.test.ts`; updated `squad.test.ts`, `matchReducer.test.ts`, `MatchWorkspace.test.tsx` (opens in Setup + view switch test), `hydration.test.tsx` (expects the board) |
-| Docs | `CLAUDE.md` (state, layout, model, invariant 3 corrected, invariants 14–16, board notes), `docs/BUILD_PLAN.md` (A8 corrected, A19–A25, sketch, Phase 2 DONE), this file |
+| Domain | **new** `drawings.ts` (+ `drawings.test.ts`); `types.ts` (DrawingKind adds lofted/shot/freehand; `points`, `note`); `layout.ts` (`findPlayerAt`); `geometry.ts` (`metresToView`) |
+| Store | **new** `history.ts` (+ `history.test.ts`); `matchReducer.ts` (`drawing/add`, `drawing/update`, `drawing/move`, `drawings/delete`, `BOARD_ACTION_TYPES`, sanitising, detach-on-edit); `MatchContext.tsx` (history reducer, `useBoardHistory`, drawing helpers) |
+| Pitch UI | **new** `useBoardInteraction.ts`, `drawingPath.ts` (+ test), `drawingStyle.ts`, `boardTypes.ts`; rewritten `TacticalBoard.tsx`, `DrawingLayer.tsx`; `PlayerMarker.tsx` (keyboard only, `data-slot-id`); `pitchTheme.ts` (shot/freehand/badge colours) |
+| Board UI | **new** `DrawingToolbar.tsx`, `DrawingPanel.tsx` (panel + list), `playerLabel.ts`, `boardTestUtils.ts`, `DrawingTools.test.tsx`; `BoardView.tsx` (tool state, unified selection, shortcuts via `useEffectEvent`); `SelectionPanel.tsx`; `PatternPanel.tsx` (clear moved to toolbar) |
+| Tests updated | `BoardView.test.tsx` (shared utils, new drawing markup, toolbar clear), `matchReducer.test.ts`, `layout.test.ts` |
+| Docs | `CLAUDE.md` (state, layout, Drawing model, invariants 16–18, board notes/shortcuts), `docs/BUILD_PLAN.md` (A6 confirmed, A26–A29, Phase 3 DONE), this file |
 
 ## Dependencies
 
-**None added in Phase 2.** Drag uses Pointer Events; SVG is hand-written. Installed set unchanged from Phase 1 (`next` 16.4.0, `react` 19.3.0, `typescript` 5.9.3, `tailwindcss` 4.3.3, `zod` 4.6.5 — still unused, `lucide-react` 1.55.0, `vitest` 5.0.3, RTL 16.3.3, `jsdom` 30.1.2, `@types/node` 24.x).
+**None added in Phase 3.** Same installed set as Phase 1 (`zod` still unused).
 
-## Commands actually executed in Phase 2 and results
+## Commands actually executed in Phase 3 and results
 
 | Command | Result |
 |---|---|
-| Baseline: `npm run typecheck`, `npm run lint`, `npm test` (before changes) | Passed; 47 tests |
-| `npx vitest run …` during development | Failures found and fixed: (1) formation line-order test tolerance for staggered wing-backs (test fix); (2) **mid-block and low-block produced no arrows for formations without wide players** (pattern fix: use "wide-lane" rule); (3) board tests matched both teams' identically named fixture players (test fix); (4) **snap-to-grid made 1 m keyboard nudges no-ops** (code fix: nudges are not snapped) |
+| Baseline `npm run typecheck`, `npm run lint`, `npm test` | Passed; 142 tests |
+| `npx eslint` during development | Caught "Cannot update ref during render" (React Compiler rule) in the keyboard-shortcut code → rewritten with `useEffectEvent` |
+| `npx vitest run` during development | Two expected failures in Phase 2 board tests after the markup change (`line[data-kind]` → drawing groups; clear moved to toolbar) — tests updated |
+| Mutation checks (temporary code breaks, then restored) | Removing the "LD" label → 2 tests fail; letting drawing tools drag players → 2 tests fail. Confirms the tests guard these behaviours. |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed, no warnings |
-| `npm test` | **Passed: 11 files, 142 tests** |
-| `npm run build` | Passed (Next 16.4.0 Turbopack; `/`, `/_not-found`, `/icon.svg` static) |
-| `next start -p 3125` + `curl /` | HTTP 200, loading fallback in server HTML |
+| `npm test` | **Passed: 15 files, 202 tests** |
+| `npm run build` | Passed |
+| `next start -p 3126` + `curl /` | HTTP 200 |
 
-## Tests (142)
+## Tests added in Phase 3 (60)
 
-- `geometry.test.ts` — team-frame rotation & handedness, view transforms in both orientations, client→pitch mapping at multiple sizes and with letterboxing, clamping, snapping, metre distances, screen-relative nudges, segment trimming.
-- `formations.test.ts` — all 10 presets present; each 11 slots, 1 GK, valid codes, outfield = 10, own half, no overlaps, back/front line sizes match the name, left/right symmetry.
-- `layout.test.ts` — exact template coordinates for both sides; **identity/XI/bench unchanged across all 100 formation pairs × 2 sides**; GK stays GK, full backs stay on their flank; LB→LWB; incomplete XI; reset after drag; label override counts as modified; clamped moves; saved-layout round trip and cross-team reuse; deleted layout resolution.
-- `patterns.test.ts` — 12 patterns × 10 formations × 2 sides: in-bounds, deterministic, identity preserved, arrows start at real players, unique ids, tagged source; high press higher / low block deeper; overlap outside vs underlap inside; corner taker at the flag; non-compounding; arrows only for filled slots.
-- `squad.test.ts`, `match.test.ts`, `matchReducer.test.ts` — Phase 1 rules on the fixed-slot model, plus board actions (formation apply/reset, per-team pattern arrow replacement, clear keeps players, saved layout save/reuse/delete fallback, blank names ignored, relabel without moving).
-- `BoardView.test.tsx` — 22 markers incl. empty ghosts; labels; **drag then resize then drag again lands correctly**; click selects without moving; keyboard nudge; portrait redraw; formation switch keeps players; confirm-before-discard + reset; save/reuse/delete arrangement; pattern arrows + clear arrows keeps positions; confirm before pattern over custom positions; position override; snap on keeps 1 m nudges; confirmation focus; snapped drags land on grid.
-- `MatchWorkspace.test.tsx`, `hydration.test.tsx`, `labels.test.ts`.
+- `drawings.test.ts` — segment distance; lofted bulge side/size; Bézier sub-curves match the original; trim parameters; LD anchor at apex; hit testing for straight, lofted (curve not chord) and freehand; nearest/top-most preference; translate keeps shape on pitch and drops hints; reverse swaps hints; freehand spacing; sanitising (clamp, optional fields, min length, NaN, unknown kind, note limit).
+- `history.test.ts` — undo/redo of drags; exact drawing list restored across add/edit/move/delete/clear in both directions; formation + pattern undone together; redo cleared by new change; setup changes bypass history and survive undo; **undo never resurrects a removed player or un-benches a player**; no-ops/rejections not recorded; cap of 100.
+- `matchReducer.test.ts` — add (sanitised, duplicate/tiny rejected, source stripped), pass→lofted + note keeps geometry, endpoint attach/detach, pattern arrows detach on edit and survive re-apply, arrow↔freehand refused, move/delete.
+- `drawingPath.test.ts` — straight paths in metres with player trims, portrait rotation, lofted curve + apex label, bulge side preserved in portrait, freehand polyline.
+- `layout.test.ts` — `findPlayerAt` both teams, radius, ignores empty slots.
+- `DrawingTools.test.tsx` (23) — active tool visible; each arrow tool draws its kind; LD on lofted in yellow; pass yellow / shot red / run dashed; arrow from player doesn't move them and attaches to both players; short click ignored; freehand; tools switch (click + shortcuts) without losing drawings; Esc cancels draft; select + convert to lofted + change type; note shown on pitch; typing in note doesn't trigger shortcuts/delete; Delete key + Esc; endpoint drag + snap to player; move whole arrow without moving players; reverse; eraser sweep (players untouched, one undo step); undo/redo buttons and shortcuts; undo restores cleared annotations and player drag; touch drag in Select and touch draw in Pass.
 
 ## Not verified
 
-- **No real-browser check** (again). No browser automation is available in this environment and neither Chrome nor Chromium is installed; downloading Playwright's Chromium was not done without asking. Drag/touch/keyboard behaviour was verified only in jsdom (`fireEvent.pointer*`, mocked layout). **Please try `npm run dev` manually**: drag players (mouse and, if possible, touch/tablet), toggle portrait, apply patterns, check legibility of labels and arrows. Phase 7 owns the full responsive/a11y pass.
-- Touch scrolling behaviour: markers set `touch-action: none` (so dragging a player never scrolls), while the grass does not (so the page can still scroll on touch devices). Unverified on a device.
+- **No real-browser check** (no browser automation here; Chrome/Chromium not installed). Pointer, touch and keyboard behaviour is verified only in jsdom with mocked layout. Please try `npm run dev`: draw each arrow type, edit endpoints, erase, undo/redo, and check LD/note legibility at small sizes and in portrait; ideally test touch on a tablet. Phase 7 owns the full responsive/a11y pass.
+- Visual quality of arrowheads/LD badge at very small board sizes (phone width) is unverified.
 
 ## Known issues and limitations
 
-- Data resets on refresh (Phase 6).
-- Arrows are read-only and come only from patterns; they cannot be selected, edited or individually deleted yet (Phase 3). Arrows do not follow players by design (invariant 4) — moving a player after applying a pattern leaves arrows where they were.
-- Saved arrangements are per match (`Match.savedLayouts`), not global; Phase 6 may revisit.
-- Side-specific patterns (overlap, underlap, wide overload, counter-press, rotations, set piece) always use the team's **left** flank; there is no flank selector yet.
-- Board UI state (orientation, snap, selection) is not persisted and resets when switching to Setup and back.
-- Two players can be dragged onto the same spot (allowed; free positioning is a requirement).
+- Data resets on refresh (Phase 6). Undo history is in memory only and will not survive a reload even after Phase 6 (by design unless decided otherwise).
+- An endpoint edit that would make an arrow shorter than 1.5 m is silently rejected (the arrow snaps back).
+- Freehand drawings can be moved, noted and deleted but their individual points can't be edited.
+- Endpoint handles and arrow selection are pointer-only; keyboard users select drawings via the side-panel list and edit via the panel (no keyboard endpoint nudging).
+- Arrows lying underneath a player marker can only be clicked where they're not covered (markers win by design); the side-panel list always works.
+- Side-specific patterns still use only the left flank; board UI state (tool, orientation, snap, selection) resets when switching to Setup and back.
 - Carried over: `MatchStatus` vs clock reconciliation (Phase 4); `zod` unused (Phase 6/7); dev-tooling `npm audit` advisories; `unrs-resolver` allow-scripts warning.
 
-## Architecture notes for Phase 3
+## Architecture notes for Phase 4
 
-- Drawings live in `Match.drawings`; `Drawing.kind` is `'pass' | 'movement'` today — extend the union with `'shot' | 'lofted' | 'freehand'` (freehand needs `points?: Point[]`). `DrawingLayer` currently has `pointer-events: none`; Phase 3 will need hit-testing and selection there.
-- Pattern arrows carry `source`; decide whether editing a pattern arrow detaches it (recommended: clear `source` on edit so re-applying a pattern won't delete user-edited arrows).
-- Undo/redo (decision A6): history of board state — `home.slots`, `away.slots`, formations, `drawings` (and probably `savedLayouts`). Every board mutation is already a single reducer action (drags commit once on pointer-up), so a history wrapper around the reducer for board action types is the natural fit. Roster/setup actions should not enter the board history, but note they also mutate slots (filling/emptying) — design how history interacts with them (simplest: clear redo stack on non-board actions, or snapshot only board fields and re-merge).
-- Tool modes must gate pointer handling: in Select mode markers drag (current behaviour); in drawing modes, pointer-down on a marker should start an arrow from that player instead of dragging it.
-- Arrow geometry helpers available: `shortenSegment`, `toView/fromView`, `clientToPitch`, `distanceMetres`.
+- **Starting XI vs active lineup:** `Team.slots[].playerId` is the *starting* XI (edited in Setup). Per invariant 6, the active lineup must be *derived* by folding valid, ordered substitution (and red-card) events over the starting slots: the incoming player takes the outgoing player's **slot** (and therefore its pitch position); a sent-off player's slot becomes empty in the derived view. Do not mutate `slots` when recording events. Phase 5 will switch the board to render the derived lineup.
+- Roster edits after events exist can invalidate them (e.g. removing a player referenced by a goal/sub, or moving a starter to the bench). Decide and test the rule: suggested — derivation reports invalid events (never crashes), and Setup warns/blocks removing players referenced by events.
+- Events and the clock are **not** board state: keep their actions out of `BOARD_ACTION_TYPES` (decision A6). Event edits are explicit edit/delete.
+- Clock (invariant 8): pure functions taking `now`; persisted `ClockState` = `{ period, elapsedMs, runningSinceEpochMs }`; `durationMinutes` (10–180) sets half length; extra time 2 × 15. Reconcile `MatchStatus` with clock transitions (e.g. kickoff → `inProgress`, full time → `completed`).
+- Event IDs: generate in `useMatchActions` like other entities; ordering tie-breaker = insertion order (keep an array order or a `createdSeq`).
 
 ## Next phase
 
-**Phase 3 — Tactical Drawing Engine** (**Opus**). Scope and acceptance in `docs/BUILD_PLAN.md` §4.
+**Phase 4 — Match Domain Logic and Timekeeping** (**Opus**). Scope and acceptance in `docs/BUILD_PLAN.md` §4.
 
-Prompt to send: `Start Phase 3 according to CLAUDE.md and docs/IMPLEMENTATION_STATUS.md.`
+Prompt to send: `Start Phase 4 according to CLAUDE.md and docs/IMPLEMENTATION_STATUS.md.`

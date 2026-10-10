@@ -178,3 +178,8 @@ export function shortenSegment(from: Point, to: Point, startInset: number, endIn
     { x: to.x - dx * e, y: to.y - dy * e },
   ];
 }
+
+/** Canonical metres → SVG view coordinates. The view is a rotation of metre space. */
+export function metresToView(m: Point, orientation: Orientation): Point {
+  return toView(fromMetres(m), orientation);
+}

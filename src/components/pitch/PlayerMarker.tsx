@@ -1,20 +1,17 @@
 'use client';
 
-import type { KeyboardEvent, PointerEvent } from 'react';
+import type { KeyboardEvent } from 'react';
 import { positionName } from '@/domain/positions';
-import type { Player, PositionCode, TeamSide, Point } from '@/domain/types';
+import type { Id, Player, PositionCode, TeamSide, Point } from '@/domain/types';
 import { compactName } from './labels';
 import { MARKER_RADIUS, PITCH_THEME as T } from './pitchTheme';
 
-export interface MarkerHandlers {
-  onPointerDown: (e: PointerEvent<SVGGElement>) => void;
-  onPointerMove: (e: PointerEvent<SVGGElement>) => void;
-  onPointerUp: (e: PointerEvent<SVGGElement>) => void;
-  onPointerCancel: (e: PointerEvent<SVGGElement>) => void;
-  onKeyDown: (e: KeyboardEvent<SVGGElement>) => void;
-}
-
-interface PlayerMarkerProps extends MarkerHandlers {
+/**
+ * Pointer input is handled once at the <svg> level (see useBoardInteraction),
+ * which identifies markers by `data-slot-id`; the marker handles keyboard only.
+ */
+interface PlayerMarkerProps {
+  slotId: Id;
   side: TeamSide;
   teamName: string;
   /** Position in SVG view units (metres). */
@@ -23,6 +20,9 @@ interface PlayerMarkerProps extends MarkerHandlers {
   player: Player | null;
   selected: boolean;
   dragging: boolean;
+  /** Draggable in the select tool; in drawing tools it is an arrow anchor. */
+  draggable: boolean;
+  onKeyDown: (e: KeyboardEvent<SVGGElement>) => void;
 }
 
 const LABEL_STYLE = {
@@ -33,6 +33,7 @@ const LABEL_STYLE = {
 } as const;
 
 export function PlayerMarker({
+  slotId,
   side,
   teamName,
   view,
@@ -40,7 +41,8 @@ export function PlayerMarker({
   player,
   selected,
   dragging,
-  ...handlers
+  draggable,
+  onKeyDown,
 }: PlayerMarkerProps) {
   const colours = T[side];
   const label = player
@@ -53,12 +55,13 @@ export function PlayerMarker({
       tabIndex={0}
       aria-label={label}
       aria-pressed={selected}
+      data-slot-id={slotId}
       data-side={side}
       data-position={position}
       transform={`translate(${view.x} ${view.y})`}
-      className="pitch-marker cursor-grab outline-none"
-      style={{ touchAction: 'none', cursor: dragging ? 'grabbing' : undefined }}
-      {...handlers}
+      className="pitch-marker outline-none"
+      style={{ touchAction: 'none', cursor: draggable ? (dragging ? 'grabbing' : 'grab') : 'crosshair' }}
+      onKeyDown={onKeyDown}
     >
       <title>{label}</title>
       <circle

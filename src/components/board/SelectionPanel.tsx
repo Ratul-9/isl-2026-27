@@ -2,15 +2,20 @@
 
 import { getTeam, teamDisplayName } from '@/domain/match';
 import { positionName } from '@/domain/positions';
-import type { PositionCode } from '@/domain/types';
+import type { Id, PositionCode, TeamSide } from '@/domain/types';
 import { useMatch, useMatchActions } from '@/store/MatchContext';
 import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/fields';
 import { PositionOptions } from '@/components/setup/PlayerForm';
-import type { SlotRef } from '@/components/pitch/TacticalBoard';
 
 /** Details and position override for the selected marker. */
-export function SelectionPanel({ selected, onClear }: { selected: SlotRef | null; onClear: () => void }) {
+export function SelectionPanel({
+  selected,
+  onClear,
+}: {
+  selected: { side: TeamSide; slotId: Id } | null;
+  onClear: () => void;
+}) {
   const match = useMatch();
   const actions = useMatchActions();
   const team = selected ? getTeam(match, selected.side) : null;
@@ -21,8 +26,8 @@ export function SelectionPanel({ selected, onClear }: { selected: SlotRef | null
       <section aria-label="Selected player" className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
         <h3 className="text-sm font-semibold">Selected player</h3>
         <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-          Click a player to select. Drag to move anywhere on the pitch. With a player focused, arrow keys nudge 1 m
-          (Shift: 5 m) and Esc deselects.
+          With the Select tool, click a player or arrow to select it and drag to move it. With a player focused, arrow
+          keys nudge 1 m (Shift: 5 m) and Esc deselects.
         </p>
       </section>
     );

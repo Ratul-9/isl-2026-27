@@ -11,7 +11,7 @@ Companion to `CLAUDE.md` (rules, invariants, stack) and `docs/IMPLEMENTATION_STA
 | A3 | Match UI is client-only: `<MatchProvider>` renders a loading fallback on the server and the real tree on the client (`useSyncExternalStore` gate); storage is read inside that subtree | Local-first; avoids SSR/hydration mismatch, and keeps random IDs/time out of server prerender under Cache Components. Verified by `hydration.test.tsx`. |
 | A4 | Domain logic in pure TS (`src/domain`), no React/DOM/Date | Testable; satisfies "predictable, testable transitions". |
 | A5 | One reducer per open match; actions are plain objects | Predictable updates, easy undo history and tests. |
-| A6 | Undo/redo covers **board state** (slot coordinates, formation, drawings). Match events are changed through explicit edit/delete, not the undo stack | Clock/event history is a record of fact; mixing it into undo creates confusing clock states. Revisit in Phase 3 if it feels wrong. |
+| A6 | Undo/redo covers **board state** (slot geometry, formations, drawings, saved layouts). Match events are changed through explicit edit/delete, not the undo stack. *Confirmed in Phase 3; see A26.* | Clock/event history is a record of fact; mixing it into undo creates confusing clock states. |
 | A7 | Pitch frame: one canonical landscape frame, `x` = length, `y` = width, both 0–1; portrait is a render transform | Single source of truth; resizing and orientation never alter stored data. |
 | A8 | Formation/pattern templates team-relative; converted for away with a 180° rotation (x→1−x, y→1−y) on apply. *Phase 2 correction: originally "mirrored x→1−x", which flips the away team's left/right.* | One definition serves both sides. |
 | A9 | Pitch coordinates are owned by **lineup slots**, not players | Substitution = swap `playerId` in a slot; position and shape are preserved naturally. |
@@ -30,6 +30,10 @@ Companion to `CLAUDE.md` (rules, invariants, stack) and `docs/IMPLEMENTATION_STA
 | A23 | Saved custom arrangements live on `Match.savedLayouts` in the team frame (usable by both teams); saving makes the team follow the saved layout; deleting falls back to its base preset | Simple and match-scoped; Phase 6 may decide whether layouts become library-wide. |
 | A24 | Drags are local UI state committing one `slot/move` on pointer-up; 0.3 m threshold separates click (select) from drag; pointer mapping via `getBoundingClientRect` + pure `clientToPitch` | One undo step per drag in Phase 3; testable in jsdom; correct under resize/letterboxing. |
 | A25 | Workspace has Board (default) and Setup views in the header | The pitch is the visual centre per spec; setup stays one click away. |
+| A26 | Undo history wraps the reducer and snapshots slot **geometry by slot id**, not occupants; setup actions bypass history | Undo after roster changes can never resurrect removed players or duplicate bench/XI membership. |
+| A27 | One `<svg>`-level pointer router with pointer capture; tool mode gates behaviour; drawing tools find players with a pure hit test (`findPlayerAt`) instead of DOM targets | Unambiguous player-drag vs arrow-draw on mouse, pen and touch; testable in jsdom. |
+| A28 | Lofted pass = yellow quadratic Bézier bulging left of travel (18% of length), "LD" badge at the apex; shot = red; movement = white dashed; freehand = light blue polyline, no arrowhead | Lofted is distinguishable even without the label; LD sits on the arrow as required. |
+| A29 | Editing a pattern-generated drawing drops its `source`, so re-applying a pattern won't delete user-edited arrows | Pattern output is a starting point; user edits are owned by the user. |
 | A18 | Reducer actions carry pre-generated IDs; hook `useMatchActions` validates then dispatches; reducer ignores invalid ops by returning the same state | Pure/deterministic reducer, StrictMode-safe, errors surfaced to forms. |
 
 ## 2. Domain model sketch
@@ -55,7 +59,7 @@ interface SavedLayout { id: Id; name: string; baseFormation: FormationId; slots:
 // Match (Phase 1): id + flat MatchInfo {name, competition, date, kickoffTime, venue,
 // durationMinutes, notes, status} + officials + home + away.
 // Phase 2 added slot x/y, Team.formation, Match.drawings (pass|movement) and Match.savedLayouts.
-// Phase 3 extends Drawing kinds; Phase 4 events + clock; Phase 6 schemaVersion.
+// Phase 3 added Drawing kinds lofted/shot/freehand, points, note; Phase 4 events + clock; Phase 6 schemaVersion.
 interface Officials { referee: string; assistant1: string; assistant2: string; fourthOfficial: string }
 
 type MatchEvent =                        // all carry: id, period, matchTimeMs, createdSeq
@@ -66,7 +70,7 @@ type MatchEvent =                        // all carry: id, period, matchTimeMs, 
   | { type: 'note'; text: string; teamId?: Id };
 
 interface Drawing { id: Id; kind: 'pass'|'shot'|'lofted'|'movement'|'freehand'; from: Point; to: Point; points?: Point[]; fromPlayerId?: Id; toPlayerId?: Id; note?: string;
-  source?: { patternId: string; teamId: Id } }   // Phase 2 implements kind 'pass'|'movement' + source; Phase 3 the rest
+  source?: { patternId: string; teamId: Id } }   // all fields implemented (Phase 3)
 interface ClockState { period: Period; elapsedMs: number; runningSinceEpochMs: number | null }
 ```
 
@@ -129,7 +133,7 @@ Dependencies: 0 → 1 → 2 → 3; 1 → 4 (domain needs team/player types); 2+4
 
 **Acceptance:** every formation yields a valid 11-player layout; formation switch moves markers and keeps identities; dragged positions stay correct on resize and orientation change.
 
-### Phase 3 — Tactical drawing engine *(Opus)*
+### Phase 3 — Tactical drawing engine *(Opus)* — DONE
 **Tasks**
 - Tool state: Select/Move, Pass, Shot, Lofted Pass, Movement, Freehand (optional), Eraser, Clear Annotations; visible active tool.
 - SVG arrows (yellow pass; red shot; yellow lofted with **LD** label on the arrow; dashed movement), arrowhead markers, label placement that stays legible.

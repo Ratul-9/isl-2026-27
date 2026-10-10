@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Eraser, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { isLayoutModified } from '@/domain/layout';
 import { getTeam, teamDisplayName } from '@/domain/match';
 import { getPattern, isPatternId, PATTERNS } from '@/domain/patterns';
@@ -20,12 +20,10 @@ export function PatternPanel() {
   const [side, setSide] = useState<TeamSide>('home');
   const [patternId, setPatternId] = useState<PatternId>('high-press');
   const [confirmApply, setConfirmApply] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
   const team = getTeam(match, side);
   const name = teamDisplayName(team, side);
   const pattern = getPattern(patternId);
   const modified = isLayoutModified(team, side, match.savedLayouts);
-  const arrowCount = match.drawings.length;
 
   function apply() {
     actions.applyPattern(side, patternId);
@@ -88,29 +86,6 @@ export function PatternPanel() {
         Re-applying replaces this team&apos;s previous pattern arrows. “Reset to formation” restores the shape.
       </p>
 
-      <div className="border-t border-zinc-800 pt-3">
-        {confirmClear ? (
-          <ConfirmBar
-            message={`Remove all ${arrowCount} arrow${arrowCount === 1 ? '' : 's'} from the board? Players stay where they are.`}
-            confirmLabel="Clear arrows"
-            onConfirm={() => {
-              actions.clearDrawings();
-              setConfirmClear(false);
-            }}
-            onCancel={() => setConfirmClear(false)}
-          />
-        ) : (
-          <Button
-            size="sm"
-            className="w-full"
-            disabled={arrowCount === 0}
-            onClick={() => setConfirmClear(true)}
-            title={arrowCount === 0 ? 'There are no arrows on the board' : 'Remove every arrow, keep the lineup'}
-          >
-            <Eraser size={14} aria-hidden /> Clear arrows{arrowCount > 0 ? ` (${arrowCount})` : ''}
-          </Button>
-        )}
-      </div>
     </section>
   );
 }
