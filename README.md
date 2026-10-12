@@ -65,6 +65,8 @@ Library → **Create from lineup images**. Automatic reading needs a Google Gemi
 
 Only team names, coaches, formations, starters and substitutes are read; goals, assists and substitutions are not.
 
+> **Video analysis is switched off by default.** Both video features below (computer-vision tracking and the AI clip sketch) only run when `NEXT_PUBLIC_VIDEO_ANALYSIS=on` is set (for example in `.env.local`) at build/start time. Without it the buttons show "Coming Soon" and the API routes refuse requests, which is how the hosted deployment runs.
+
 ## Tracking a video (computer vision)
 
 Match → **Replays** → **Track a video**. This needs the separate local service in [`cv-service/`](cv-service/README.md) (Python, run with `uv`). It uses dedicated football detection models and a tracker; no AI chat model or cloud service is involved, and the video never leaves your machine.

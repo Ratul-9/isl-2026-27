@@ -201,6 +201,10 @@ Persistence: schema **v4** (`Team.pool`, `Team.preset`, `Player.origin`, all opt
 
 Persistence: schema **v5** adds optional `Match.playerDisplay`, `Team.kit`, `PlayerOrigin.assignedNumber`; migration `4 → 5` is the identity.
 
+## Feature switches
+
+54. **Video analysis is OFF unless `NEXT_PUBLIC_VIDEO_ANALYSIS=on`** (`lib/features.ts`, read at build time on both client and server; fail-closed, so a deployment that forgets the variable exposes nothing). Off: the Replays buttons **Track a video** and **AI sketch from a clip** stay visible and answer "Coming Soon 🎬" without opening anything; `/api/analyze-video` and `/api/cv/*` return 503 before reading the key or the upload; "Create replay by hand" and playback of saved replays are unaffected. Production (Vercel) leaves it unset; local development sets it in `.env.local`. Tests turn it on in `vitest.setup.ts`; the off behaviour is tested with the `videoAnalysis` prop / `vi.stubEnv`. The lineup-image import is a separate feature and is not covered by this switch.
+
 Tests: `domain/presets/snapshot.test.ts`, `domain/squadPool.test.ts` (pure), `presets/presets.test.ts` (schema, quality, diff, overrides, CSV, loader), `presets/isl/isl.test.ts` (parsers on real page excerpts, season guard, robots), `components/presets/Presets.test.tsx` (the real UI + workspace with injected `PresetDeps`), `presets/dataset.test.ts` (the committed dataset), `persistence/migrate.test.ts` (v3 fixture).
 
 ## Lineup image import

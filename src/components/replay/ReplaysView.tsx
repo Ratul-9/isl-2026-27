@@ -5,6 +5,7 @@ import { createId } from '@/domain/ids';
 import { emptyReplay, replayFromAnalysis } from '@/domain/replay/build';
 import { replayFromTracking, trackingFromServiceResult } from '@/domain/tracking/build';
 import type { Id, TacticalReplay } from '@/domain/types';
+import { videoAnalysisEnabled } from '@/lib/features';
 import { useMatch, useMatchActions } from '@/store/MatchContext';
 import { Button } from '@/components/ui/Button';
 import { ClipImport, defaultClipDeps } from './ClipImport';
@@ -46,7 +47,16 @@ function draftFromClip(clip: AnalysedClip, keep?: { id: Id; createdAt: string })
 
 
 /** The match's tactical replays: list, track a video, import from a clip, annotate by hand, review/edit, play. */
-export function ReplaysView({ clipDeps = defaultClipDeps, trackingDeps = defaultTrackingDeps }: { clipDeps?: ClipDeps; trackingDeps?: TrackingDeps }) {
+export function ReplaysView({
+  clipDeps = defaultClipDeps,
+  trackingDeps = defaultTrackingDeps,
+  videoAnalysis = videoAnalysisEnabled(),
+}: {
+  clipDeps?: ClipDeps;
+  trackingDeps?: TrackingDeps;
+  /** Overrides the `NEXT_PUBLIC_VIDEO_ANALYSIS` switch (tests). */
+  videoAnalysis?: boolean;
+}) {
   const match = useMatch();
   const actions = useMatchActions();
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
@@ -181,6 +191,7 @@ export function ReplaysView({ clipDeps = defaultClipDeps, trackingDeps = default
         setMode(r.origin === 'tracking' ? { kind: 'track-edit', draft: r, isNew: false, video: null } : { kind: 'edit', draft: r, isNew: false, clip: null, generation: 0 })
       }
       onDelete={actions.deleteReplay}
+      videoAnalysis={videoAnalysis}
     />
   );
 }

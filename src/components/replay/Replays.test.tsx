@@ -473,3 +473,50 @@ describe('jersey display', () => {
   });
 });
 
+describe('video analysis switched off', () => {
+  it('answers "Coming Soon" on both video buttons and opens nothing', async () => {
+    const deps = fakeDeps();
+    const user = userEvent.setup();
+    render(
+      <MatchProvider initialMatch={matchWithSquads()}>
+        <ReplaysView clipDeps={deps} videoAnalysis={false} />
+      </MatchProvider>,
+    );
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /track a video/i }));
+    expect(screen.getByRole('status')).toHaveTextContent('Coming Soon');
+    expect(screen.getByRole('status')).toHaveTextContent('🎬');
+    // Still on the list: no import screen, no service or AI request.
+    expect(screen.getByRole('heading', { name: 'Tactical replays' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Video file')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /ai sketch from a clip/i }));
+    expect(screen.getByRole('status')).toHaveTextContent('Coming Soon');
+    expect(screen.queryByLabelText('Video clip')).not.toBeInTheDocument();
+    expect(deps.analyze).not.toHaveBeenCalled();
+  });
+
+  it('still lets the user create a replay by hand', async () => {
+    const user = userEvent.setup();
+    render(
+      <MatchProvider initialMatch={matchWithSquads()}>
+        <ReplaysView videoAnalysis={false} />
+      </MatchProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: /create replay by hand/i }));
+    expect(await screen.findByRole('heading', { name: 'Review replay' })).toBeInTheDocument();
+  });
+
+  it('is off unless NEXT_PUBLIC_VIDEO_ANALYSIS is "on"', async () => {
+    const { videoAnalysisEnabled } = await import('@/lib/features');
+    vi.stubEnv('NEXT_PUBLIC_VIDEO_ANALYSIS', 'on');
+    expect(videoAnalysisEnabled()).toBe(true);
+    for (const v of ['', 'off', 'true', '1']) {
+      vi.stubEnv('NEXT_PUBLIC_VIDEO_ANALYSIS', v);
+      expect(videoAnalysisEnabled()).toBe(false);
+    }
+    vi.unstubAllEnvs();
+  });
+});
+

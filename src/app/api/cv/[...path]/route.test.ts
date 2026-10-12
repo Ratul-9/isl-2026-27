@@ -58,4 +58,18 @@ describe('/api/cv proxy', () => {
     expect(body.error.code).toBe('service_unreachable');
     expect(body.error.message).toMatch(/uv run uvicorn app.main:app --port 8001/);
   });
+
+  it('refuses everything, without contacting the service, when video analysis is switched off', async () => {
+    vi.stubEnv('NEXT_PUBLIC_VIDEO_ANALYSIS', 'off');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await GET(new Request('http://localhost/api/cv/health'), ctx('health'));
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe('disabled');
+    const form = new FormData();
+    form.set('video', new File([new Uint8Array(10)], 'clip.mp4'));
+    expect((await POST(new Request('http://localhost/api/cv/analyze', { method: 'POST', body: form }), ctx('analyze'))).status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
+

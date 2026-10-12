@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { videoAnalysisEnabled } from '@/lib/features';
 import { readVideoConfig, videoStatusFromConfig } from '@/video-analysis/config';
 import { createGeminiVideoProvider } from '@/video-analysis/geminiVideoProvider';
 import type { VideoErrorCode } from '@/video-analysis/schema';
@@ -32,6 +33,7 @@ const STATUS_FOR: Record<VideoErrorCode, number> = {
   unexpected: 500,
 };
 
+const COMING_SOON = 'Video analysis is coming soon.';
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const failure = (code: VideoErrorCode, message: string, retryable = false) =>
   json({ ok: false, error: { code, message, retryable } }, STATUS_FOR[code]);
@@ -39,11 +41,14 @@ const failure = (code: VideoErrorCode, message: string, retryable = false) =>
 /** Reports whether analysis is available and the limits in force, without revealing any secret. */
 export async function GET() {
   await connection(); // env is read per request, never frozen into a prerender
+  if (!videoAnalysisEnabled()) return failure('not_configured', COMING_SOON);
   return json(videoStatusFromConfig(readVideoConfig()));
 }
 
 export async function POST(request: Request) {
   await connection();
+  // Switched off: refuse before reading the upload or the key (nothing is sent to Google).
+  if (!videoAnalysisEnabled()) return failure('not_configured', COMING_SOON);
   const config = readVideoConfig();
   if (!config.apiKey) {
     return failure('not_configured', videoStatusFromConfig(config).reason ?? 'Video analysis is not configured.');

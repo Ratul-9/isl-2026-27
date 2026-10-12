@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { videoAnalysisEnabled } from '@/lib/features';
 import { cvServiceUrl, cvTarget } from '@/tracking/proxy';
 
 /**
@@ -12,6 +13,8 @@ const json = (body: unknown, status: number) => Response.json(body, { status, he
 
 async function forward(request: Request, ctx: RouteContext<'/api/cv/[...path]'>) {
   await connection();
+  // Switched off: never contact (or even resolve) the service.
+  if (!videoAnalysisEnabled()) return json({ error: { code: 'disabled', message: 'Video tracking is coming soon.' } }, 503);
   const { path } = await ctx.params;
   const target = cvTarget(request.method, path);
   if (!target) return json({ error: { code: 'not_found', message: 'No such computer-vision endpoint.' } }, 404);
