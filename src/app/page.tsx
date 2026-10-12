@@ -1,5 +1,5 @@
-import { MatchWorkspace } from "@/components/MatchWorkspace";
+import { LibraryRoute } from "@/components/routes/LibraryRoute";
 
 export default function Home() {
-  return <MatchWorkspace />;
+  return <LibraryRoute />;
 }

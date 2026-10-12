@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Python computer-vision service and its outputs are not part of the web app.
+    "cv-service/**",
+    "cv-output/**",
   ]),
 ]);
 

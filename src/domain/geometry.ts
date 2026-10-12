@@ -21,7 +21,7 @@ import type { Point, TeamSide } from './types';
 export const PITCH_LENGTH = 105;
 export const PITCH_WIDTH = 68;
 /** Space around the pitch inside the SVG viewBox (goals sit 2 m outside the lines). */
-export const VIEW_MARGIN = 4;
+const VIEW_MARGIN = 4;
 
 export type Orientation = 'landscape' | 'portrait';
 
@@ -130,8 +130,8 @@ export function clientToPitch(
 }
 
 /** Grid used by the optional snap: 2.5 m along the length, ~2.8 m across. */
-export const SNAP_COLUMNS = 42;
-export const SNAP_ROWS = 24;
+const SNAP_COLUMNS = 42;
+const SNAP_ROWS = 24;
 
 export function snapPoint(p: Point): Point {
   return clampPoint({

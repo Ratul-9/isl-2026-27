@@ -1,13 +1,13 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import { fullTeam } from '@/domain/fixtures';
-import { toView, viewBoxFor } from '@/domain/geometry';
+import { viewBoxFor } from '@/domain/geometry';
 import { createMatch } from '@/domain/match';
 import type { Match, Point } from '@/domain/types';
 
 /** Test-only helpers for driving the SVG board in jsdom (which has no layout). */
 
-export const SCALE = 10; // px per metre in the mocked layout
+const SCALE = 10; // px per metre in the mocked layout
 export const rect = { left: 0, top: 0, width: 0, height: 0 };
 
 /** Gives every <svg> a landscape-sized client rect; call in beforeEach. */
@@ -42,9 +42,6 @@ export const toClient = (v: Point) => {
   const vb = viewBoxFor('landscape');
   return { clientX: rect.left + (v.x - vb.x) * SCALE, clientY: rect.top + (v.y - vb.y) * SCALE };
 };
-
-/** Client position of a canonical pitch point. */
-export const pitchClient = (p: Point) => toClient(toView(p, 'landscape'));
 
 type PointerInit = { pointerType?: string };
 

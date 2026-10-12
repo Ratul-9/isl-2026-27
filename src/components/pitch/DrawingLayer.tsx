@@ -45,7 +45,7 @@ interface ShapeProps {
 }
 
 /** One drawing: visible stroke, LD badge for lofted passes, note, and a wide hit area. */
-export function DrawingShape({ drawing, orientation, selected = false, interactive = false, draft = false }: ShapeProps) {
+function DrawingShape({ drawing, orientation, selected = false, interactive = false, draft = false }: ShapeProps) {
   const style = DRAWING_STYLE[drawing.kind];
   const { path, label } = drawingGeometry(drawing, orientation);
   const lofted = drawing.kind === 'lofted';
@@ -115,7 +115,7 @@ export function DrawingLayer({
   draft: Drawing | null;
 }) {
   return (
-    <g aria-label={`${drawings.length} tactical drawing${drawings.length === 1 ? '' : 's'}`}>
+    <g role="group" aria-label={`${drawings.length} tactical drawing${drawings.length === 1 ? '' : 's'}`}>
       {drawings.map((d) => (
         <DrawingShape
           key={d.id}

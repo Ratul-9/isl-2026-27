@@ -136,7 +136,7 @@ export function SavedLayoutsPanel() {
           <li key={l.id} className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate">{l.name}</span>
-              <span className="text-xs text-zinc-500">from {l.baseFormation}</span>
+              <span className="text-xs text-zinc-400">from {l.baseFormation}</span>
               <Button
                 size="sm"
                 variant="ghost"

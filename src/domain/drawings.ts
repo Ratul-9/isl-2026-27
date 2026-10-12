@@ -24,7 +24,7 @@ export const DRAWING_LABELS: Record<DrawingKind, string> = {
 export type ArrowKind = Exclude<DrawingKind, 'freehand'>;
 export const ARROW_KINDS: readonly ArrowKind[] = ['pass', 'lofted', 'shot', 'movement'];
 
-export function isDrawingKind(value: unknown): value is DrawingKind {
+function isDrawingKind(value: unknown): value is DrawingKind {
   return typeof value === 'string' && (DRAWING_KINDS as readonly string[]).includes(value);
 }
 
@@ -34,13 +34,13 @@ export function isArrowKind(kind: DrawingKind): kind is ArrowKind {
 
 /** Shorter gestures are treated as clicks, not arrows. */
 export const MIN_ARROW_METRES = 1.5;
-export const MIN_FREEHAND_METRES = 1;
+const MIN_FREEHAND_METRES = 1;
 /** Freehand samples closer than this are dropped. */
-export const FREEHAND_SPACING_METRES = 0.6;
+const FREEHAND_SPACING_METRES = 0.6;
 export const MAX_FREEHAND_POINTS = 400;
 export const MAX_NOTE_LENGTH = 60;
 /** Lofted-pass bulge as a fraction of its length. */
-export const LOFT_BULGE = 0.18;
+const LOFT_BULGE = 0.18;
 
 // --- curves -----------------------------------------------------------------
 
@@ -109,7 +109,7 @@ export function labelAnchorMetres(d: Drawing): Point {
   return { x: (line[0].x + line[1].x) / 2, y: (line[0].y + line[1].y) / 2 };
 }
 
-export function polylineLengthMetres(points: readonly Point[]): number {
+function polylineLengthMetres(points: readonly Point[]): number {
   let total = 0;
   for (let i = 1; i < points.length; i++) {
     total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);

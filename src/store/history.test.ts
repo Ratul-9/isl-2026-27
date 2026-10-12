@@ -118,3 +118,21 @@ describe('historyReducer', () => {
     expect(s.past).toHaveLength(HISTORY_LIMIT);
   });
 });
+
+describe('history and match events', () => {
+  it('keeps clock and event actions out of the board undo history', () => {
+    let s = start();
+    s = run(s, { type: 'drawing/add', drawing: pass('a') });
+    s = run(
+      s,
+      { type: 'clock/advance', to: 'firstHalf', now: 1_000, idSeed: 'k' },
+      { type: 'event/add', event: { id: 'g', type: 'goal', teamId: s.match.home.id, goalType: 'normal', period: 'firstHalf', matchTimeMs: 60_000 } },
+    );
+    expect(s.past).toHaveLength(1);
+    s = run(s, { type: 'history/undo' });
+    // The drawing is undone; the clock and events are untouched.
+    expect(s.match.drawings).toEqual([]);
+    expect(s.match.clock.period).toBe('firstHalf');
+    expect(s.match.events.map((e) => e.id)).toEqual(['k-1', 'g']);
+  });
+});

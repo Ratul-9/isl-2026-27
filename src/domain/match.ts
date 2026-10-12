@@ -1,10 +1,11 @@
+import { createClock } from './clock';
 import { DEFAULT_FORMATION } from './formations';
 import { createId } from './ids';
 import { defaultSlots, SLOT_COUNT } from './layout';
 import { getSquadCounts, MAX_STARTERS, validateSquadIntegrity } from './squad';
 import type { Match, MatchInfo, MatchStatus, Officials, Team, TeamSide } from './types';
 
-export const DEFAULT_DURATION_MINUTES = 90;
+const DEFAULT_DURATION_MINUTES = 90;
 export const MIN_DURATION_MINUTES = 10;
 export const MAX_DURATION_MINUTES = 180;
 
@@ -27,7 +28,7 @@ export const OFFICIAL_FIELDS: readonly { key: keyof Officials; label: string }[]
   { key: 'fourthOfficial', label: 'Fourth Official' },
 ];
 
-export function createTeam(side: TeamSide): Team {
+function createTeam(side: TeamSide): Team {
   const slotIds = Array.from({ length: SLOT_COUNT }, () => createId('slot'));
   return {
     id: createId('team'),
@@ -56,6 +57,9 @@ export function createMatch(): Match {
     away: createTeam('away'),
     drawings: [],
     savedLayouts: [],
+    events: [],
+    clock: createClock(),
+    replays: [],
   };
 }
 
@@ -79,7 +83,7 @@ export function matchDisplayName(match: Match): string {
   return 'Untitled match';
 }
 
-export function isValidDuration(value: number): boolean {
+function isValidDuration(value: number): boolean {
   return Number.isInteger(value) && value >= MIN_DURATION_MINUTES && value <= MAX_DURATION_MINUTES;
 }
 

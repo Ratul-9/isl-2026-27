@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { at, goal, squadMatch, withEvents } from '@/domain/eventFixtures';
 import { createMatch } from '@/domain/match';
 import { MatchWorkspace } from './MatchWorkspace';
 
@@ -174,5 +175,19 @@ describe('MatchWorkspace', () => {
     expect(screen.getByRole('group', { name: /tactical board/i })).toBeInTheDocument();
     await user.click(within(workspaceNav).getByRole('button', { name: 'Setup' }));
     expect(screen.getByRole('navigation', { name: /setup sections/i })).toBeInTheDocument();
+  });
+});
+
+describe('roster editor with match events', () => {
+  it('explains why a player referenced by an event cannot be removed', async () => {
+    const user = userEvent.setup();
+    const base = squadMatch();
+    render(<MatchWorkspace initialMatch={withEvents(base, goal(base, 'home', at(10), { scorer: 'home-p9' }))} initialView="setup" />);
+    const nav = screen.getByRole('navigation', { name: /setup sections/i });
+    await user.click(within(nav).getByRole('button', { name: 'Home FC' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Striker' }));
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('appears in 1 match event');
+    expect(screen.getByText('Striker')).toBeInTheDocument();
   });
 });

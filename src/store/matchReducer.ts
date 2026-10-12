@@ -1,21 +1,33 @@
+import { advancePeriod, correctClock, pauseClock, startClock } from '@/domain/clock';
 import { sanitizeDrawing, translateDrawing } from '@/domain/drawings';
+import { analyzeEvents, checkEventChange, eventsReferencingPlayer } from '@/domain/events';
 import { getFormation } from '@/domain/formations';
 import { applyTemplate, captureLayout, moveSlot, resetToFormation, resolveTemplate } from '@/domain/layout';
 import { getTeam } from '@/domain/match';
 import type { MatchInfoPatch } from '@/domain/match';
+import { validateReplay } from '@/domain/replay/integrity';
+import { MAX_REPLAYS_PER_MATCH } from '@/domain/replay/limits';
 import { applyPattern } from '@/domain/patterns';
 import type { PatternId } from '@/domain/patterns';
 import {
   addPlayer,
+  promoteFromPool,
   removePlayer,
+  returnToPool,
   setLineupRole,
   setSlotPosition,
   updatePlayer,
+  updatePoolPlayer,
 } from '@/domain/squad';
 import type { PlayerDraft, SquadResult } from '@/domain/squad';
+import { hasKitTheme } from '@/domain/presets/kits';
+import { isPlayingPeriod } from '@/domain/time';
 import type {
   Drawing,
   FormationRef,
+  MatchEvent,
+  MatchStatus,
+  Period,
   Id,
   LineupRole,
   Match,
@@ -23,6 +35,7 @@ import type {
   Point,
   PositionCode,
   Team,
+  TacticalReplay,
   TeamSide,
 } from '@/domain/types';
 
@@ -45,6 +58,10 @@ export type MatchAction =
   | { type: 'player/update'; side: TeamSide; playerId: Id; draft: PlayerDraft }
   | { type: 'player/remove'; side: TeamSide; playerId: Id }
   | { type: 'lineup/setRole'; side: TeamSide; playerId: Id; role: LineupRole }
+  // Squad pool (teams created from a preset): not board actions, never in undo history.
+  | { type: 'pool/promote'; side: TeamSide; playerId: Id; role: LineupRole }
+  | { type: 'pool/return'; side: TeamSide; playerId: Id }
+  | { type: 'pool/update'; side: TeamSide; playerId: Id; draft: PlayerDraft }
   | { type: 'slot/setPosition'; side: TeamSide; slotId: Id; position: PositionCode }
   | { type: 'slot/move'; side: TeamSide; slotId: Id; point: Point }
   | { type: 'formation/apply'; side: TeamSide; formation: FormationRef }
@@ -56,7 +73,21 @@ export type MatchAction =
   | { type: 'drawing/add'; drawing: Drawing }
   | { type: 'drawing/update'; id: Id; patch: DrawingPatch }
   | { type: 'drawing/move'; id: Id; delta: Point }
-  | { type: 'drawings/delete'; ids: Id[] };
+  | { type: 'drawings/delete'; ids: Id[] }
+  // Clock and events (Phase 4). `now` comes from the dispatcher so the reducer stays pure.
+  | { type: 'clock/advance'; to: Period; now: number; idSeed: Id }
+  | { type: 'clock/start'; now: number }
+  | { type: 'clock/pause'; now: number }
+  | { type: 'clock/correct'; period?: Period; elapsedMs: number; now: number }
+  | { type: 'event/add'; event: MatchEvent }
+  | { type: 'event/update'; event: MatchEvent }
+  | { type: 'event/delete'; id: Id }
+  // Replays are not board actions: never in undo history, never touch the board or events.
+  | { type: 'replay/save'; replay: TacticalReplay }
+  | { type: 'replay/delete'; id: Id }
+  // Presentation only (circles or jerseys, which kit a side wears): not board actions, never in undo history.
+  | { type: 'display/setPlayers'; mode: 'circles' | 'jerseys' }
+  | { type: 'team/setKit'; side: TeamSide; kit: 'home' | 'away' };
 
 /** Action types that change the tactical board and therefore enter undo history. */
 export const BOARD_ACTION_TYPES = new Set<MatchAction['type']>([
@@ -89,6 +120,17 @@ function replaceDrawing(match: Match, id: Id, edit: (d: Drawing) => Drawing): Ma
   const drawings = [...match.drawings];
   drawings[index] = clean;
   return { ...match, drawings };
+}
+
+/**
+ * Keeps the setup "status" in step with the clock: any live period means the
+ * match is in progress, full time means completed. Pre-match leaves the
+ * manually chosen status (scheduled/postponed/…) alone.
+ */
+function statusForPeriod(period: Period, current: MatchStatus): MatchStatus {
+  if (period === 'fullTime') return 'completed';
+  if (isPlayingPeriod(period) || period === 'halfTime') return 'inProgress';
+  return current;
 }
 
 function withTeam(match: Match, side: TeamSide, team: Team): Match {
@@ -127,7 +169,20 @@ export function matchReducer(match: Match, action: MatchAction): Match {
       );
 
     case 'player/remove':
+      // Players referenced by match events can't be removed (the events would dangle).
+      if (eventsReferencingPlayer(match.events, action.playerId).length > 0) return match;
       return withTeam(match, action.side, removePlayer(getTeam(match, action.side), action.playerId));
+
+    case 'pool/promote':
+      return applyResult(match, action.side, promoteFromPool(getTeam(match, action.side), action.playerId, action.role));
+
+    case 'pool/return':
+      // A player named by an event stays in the squad (the events would dangle), exactly like removal.
+      if (eventsReferencingPlayer(match.events, action.playerId).length > 0) return match;
+      return withTeam(match, action.side, returnToPool(getTeam(match, action.side), action.playerId));
+
+    case 'pool/update':
+      return applyResult(match, action.side, updatePoolPlayer(getTeam(match, action.side), action.playerId, action.draft));
 
     case 'lineup/setRole':
       return applyResult(
@@ -188,10 +243,23 @@ export function matchReducer(match: Match, action: MatchAction): Match {
 
     case 'pattern/apply': {
       const team = getTeam(match, action.side);
-      const applied = applyPattern(team, action.side, action.patternId, match.savedLayouts, action.idSeed);
+      // Patterns describe the team on the pitch now: arrows start at the current
+      // occupants (after substitutions/dismissals), not the starting XI.
+      const current = analyzeEvents(match).lineups[action.side].slots;
+      const live: Team = { ...team, slots: team.slots.map((s, i) => ({ ...s, playerId: current[i]?.playerId ?? null })) };
+      const applied = applyPattern(live, action.side, action.patternId, match.savedLayouts, action.idSeed);
+      // Keep the starting-XI occupants; take only the geometry the pattern chose.
+      const geometry = new Map(applied.team.slots.map((s) => [s.id, s]));
+      const next: Team = {
+        ...applied.team,
+        slots: team.slots.map((s) => {
+          const g = geometry.get(s.id);
+          return g ? { ...s, x: g.x, y: g.y, position: g.position } : s;
+        }),
+      };
       // Replace this team's earlier pattern arrows; keep everything else.
       const kept = match.drawings.filter((d) => d.source?.teamId !== team.id);
-      return { ...withTeam(match, action.side, applied.team), drawings: [...kept, ...applied.drawings] };
+      return { ...withTeam(match, action.side, next), drawings: [...kept, ...applied.drawings] };
     }
 
     case 'drawings/clear':
@@ -213,6 +281,86 @@ export function matchReducer(match: Match, action: MatchAction): Match {
 
     case 'drawing/move':
       return replaceDrawing(match, action.id, (d) => translateDrawing(d, action.delta));
+
+    case 'clock/advance': {
+      const transition = advancePeriod(match.clock, action.to, action.now, match.durationMinutes);
+      if (!transition) return match;
+      const markers: MatchEvent[] = transition.markers.map((m, i) => ({
+        id: `${action.idSeed}-${i + 1}`,
+        type: 'periodMarker',
+        marker: m.marker,
+        period: m.period,
+        matchTimeMs: Math.round(m.matchTimeMs),
+      }));
+      return {
+        ...match,
+        clock: transition.clock,
+        status: statusForPeriod(action.to, match.status),
+        events: [...match.events, ...markers],
+      };
+    }
+
+    case 'clock/start': {
+      const clock = startClock(match.clock, action.now);
+      return clock === match.clock ? match : { ...match, clock };
+    }
+
+    case 'clock/pause': {
+      const clock = pauseClock(match.clock, action.now);
+      return clock === match.clock ? match : { ...match, clock };
+    }
+
+    case 'clock/correct': {
+      const clock = correctClock(match.clock, { period: action.period, elapsedMs: action.elapsedMs }, action.now);
+      return { ...match, clock, status: action.period ? statusForPeriod(clock.period, match.status) : match.status };
+    }
+
+    case 'event/add': {
+      if (match.events.some((e) => e.id === action.event.id)) return match;
+      if (checkEventChange(match, action.event).errors.length > 0) return match;
+      return { ...match, events: [...match.events, action.event] };
+    }
+
+    case 'event/update': {
+      if (!match.events.some((e) => e.id === action.event.id)) return match;
+      if (checkEventChange(match, action.event).errors.length > 0) return match;
+      // Same array position: the insertion-order tie-break is preserved.
+      return { ...match, events: match.events.map((e) => (e.id === action.event.id ? action.event : e)) };
+    }
+
+    case 'event/delete': {
+      const events = match.events.filter((e) => e.id !== action.id);
+      return events.length === match.events.length ? match : { ...match, events };
+    }
+
+    case 'replay/save': {
+      if (validateReplay(action.replay).length > 0) return match;
+      const exists = match.replays.some((r) => r.id === action.replay.id);
+      if (!exists && match.replays.length >= MAX_REPLAYS_PER_MATCH) return match;
+      return {
+        ...match,
+        replays: exists
+          ? match.replays.map((r) => (r.id === action.replay.id ? action.replay : r))
+          : [...match.replays, action.replay],
+      };
+    }
+
+    case 'display/setPlayers': {
+      // Jerseys need at least one side with a kit theme; otherwise the choice would have no effect.
+      if (action.mode === 'jerseys' && !hasKitTheme(match.home.preset?.presetId) && !hasKitTheme(match.away.preset?.presetId)) return match;
+      return (match.playerDisplay ?? 'circles') === action.mode ? match : { ...match, playerDisplay: action.mode };
+    }
+
+    case 'team/setKit': {
+      const team = getTeam(match, action.side);
+      if (!hasKitTheme(team.preset?.presetId) || team.kit === action.kit) return match;
+      return withTeam(match, action.side, { ...team, kit: action.kit });
+    }
+
+    case 'replay/delete': {
+      const replays = match.replays.filter((r) => r.id !== action.id);
+      return replays.length === match.replays.length ? match : { ...match, replays };
+    }
 
     case 'drawings/delete': {
       const ids = new Set(action.ids);

@@ -6,9 +6,11 @@ import type { Id, LineupRole, LineupSlot, Player, PositionCode, Team } from './t
 export const MAX_PLAYERS = 22;
 export const MAX_STARTERS = 11;
 export const MAX_SUBSTITUTES = 11;
+/** Players a team may hold outside the matchday squad (a club's full squad, e.g. an ISL preset). */
+export const MAX_POOL_PLAYERS = 60;
 export const MIN_SHIRT_NUMBER = 1;
 export const MAX_SHIRT_NUMBER = 99;
-export const MAX_NAME_LENGTH = 60;
+const MAX_NAME_LENGTH = 60;
 export const MAX_NOTES_LENGTH = 500;
 
 /** What the player form edits. `shirtNumber` is null while the field is blank/invalid. */
@@ -20,7 +22,7 @@ export interface PlayerDraft {
   role: LineupRole;
 }
 
-export type PlayerDraftField = 'name' | 'shirtNumber' | 'preferredPosition' | 'notes' | 'role' | 'form';
+type PlayerDraftField = 'name' | 'shirtNumber' | 'preferredPosition' | 'notes' | 'role' | 'form';
 export type PlayerDraftErrors = Partial<Record<PlayerDraftField, string>>;
 
 export type SquadResult =
@@ -103,15 +105,8 @@ export function draftFromPlayer(team: Team, player: Player): PlayerDraft {
   };
 }
 
-/**
- * Validates a player form. Pass `editingPlayerId` when editing so the player's
- * own shirt number and current role are not counted against themselves.
- */
-export function validatePlayerDraft(
-  team: Team,
-  draft: PlayerDraft,
-  editingPlayerId?: Id,
-): PlayerDraftErrors {
+/** The field-level rules shared by squad and pool players (everything except squad-wide clashes and capacity). */
+function validateDraftFields(draft: PlayerDraft): PlayerDraftErrors {
   const errors: PlayerDraftErrors = {};
 
   const name = draft.name.trim();
@@ -124,11 +119,6 @@ export function validatePlayerDraft(
     errors.shirtNumber = 'Enter a whole shirt number.';
   } else if (number < MIN_SHIRT_NUMBER || number > MAX_SHIRT_NUMBER) {
     errors.shirtNumber = `Shirt number must be between ${MIN_SHIRT_NUMBER} and ${MAX_SHIRT_NUMBER}.`;
-  } else {
-    const clash = team.players.find(
-      (p) => p.shirtNumber === number && p.id !== editingPlayerId,
-    );
-    if (clash) errors.shirtNumber = `#${number} is already worn by ${clash.name || 'another player'}.`;
   }
 
   if (!isPositionCode(draft.preferredPosition)) {
@@ -137,6 +127,26 @@ export function validatePlayerDraft(
 
   if (draft.notes.length > MAX_NOTES_LENGTH) {
     errors.notes = `Notes must be ${MAX_NOTES_LENGTH} characters or fewer.`;
+  }
+  return errors;
+}
+
+/**
+ * Validates a player form. Pass `editingPlayerId` when editing so the player's
+ * own shirt number and current role are not counted against themselves.
+ */
+export function validatePlayerDraft(
+  team: Team,
+  draft: PlayerDraft,
+  editingPlayerId?: Id,
+): PlayerDraftErrors {
+  const errors = validateDraftFields(draft);
+
+  if (errors.shirtNumber === undefined) {
+    const clash = team.players.find(
+      (p) => p.shirtNumber === draft.shirtNumber && p.id !== editingPlayerId,
+    );
+    if (clash) errors.shirtNumber = `#${draft.shirtNumber} is already worn by ${clash.name || 'another player'}.`;
   }
 
   if (editingPlayerId === undefined && team.players.length >= MAX_PLAYERS) {
@@ -252,6 +262,70 @@ export function setLineupRole(team: Team, playerId: Id, role: LineupRole): Squad
   return { ok: true, team: withRole(team, playerId, role, player.preferredPosition) };
 }
 
+// --- squad pool --------------------------------------------------------------------------------
+//
+// `Team.players` is the matchday squad (invariant 12). A team created from a preset also holds the
+// club's other players in `Team.pool`: registered, editable, but not in the XI or on the bench, and
+// so invisible to the board and to events until the user moves them into the squad.
+
+export function getPool(team: Team): Player[] {
+  return team.pool ?? [];
+}
+
+/** Moves a pool player into the starting XI or onto the bench. Nothing changes when it is refused. */
+export function promoteFromPool(team: Team, playerId: Id, role: LineupRole): SquadResult {
+  const player = getPool(team).find((p) => p.id === playerId);
+  if (!player) return { ok: false, errors: { form: 'That player is no longer in the squad pool.' } };
+  if (team.players.length >= MAX_PLAYERS) {
+    return { ok: false, errors: { form: `The matchday squad already has ${MAX_PLAYERS} players. Return a player to the pool first.` } };
+  }
+  const roleError = roleCapacityError(team, role);
+  if (roleError) return { ok: false, errors: { role: roleError } };
+  const clash = team.players.find((p) => p.shirtNumber === player.shirtNumber);
+  if (clash) {
+    return {
+      ok: false,
+      errors: {
+        shirtNumber: `#${player.shirtNumber} is already worn by ${clash.name || 'another player'} in the matchday squad. Change one of the numbers first.`,
+      },
+    };
+  }
+  const next: Team = { ...team, players: [...team.players, player], pool: getPool(team).filter((p) => p.id !== playerId) };
+  return { ok: true, team: withRole(next, player.id, role, player.preferredPosition) };
+}
+
+/** Takes a player out of the XI/bench and back into the pool. Callers check match events first. */
+export function returnToPool(team: Team, playerId: Id): Team {
+  const player = team.players.find((p) => p.id === playerId);
+  if (!player) return team;
+  return { ...removePlayer(team, playerId), pool: [...getPool(team), player] };
+}
+
+/** Edits a pool player's name, number, position and notes (the role field of the draft is ignored). */
+export function updatePoolPlayer(team: Team, playerId: Id, draft: PlayerDraft): SquadResult {
+  const pool = getPool(team);
+  if (!pool.some((p) => p.id === playerId)) return { ok: false, errors: { form: 'That player is no longer in the squad pool.' } };
+  const errors = validateDraftFields(draft);
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    team: {
+      ...team,
+      pool: pool.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              name: draft.name.trim(),
+              shirtNumber: draft.shirtNumber as number,
+              preferredPosition: draft.preferredPosition,
+              notes: draft.notes.trim(),
+            }
+          : p,
+      ),
+    },
+  };
+}
+
 /** Manual override of the position label of a slot (and so of the player in it). */
 export function setSlotPosition(team: Team, slotId: Id, position: PositionCode): Team {
   if (!isPositionCode(position) || !team.slots.some((s) => s.id === slotId)) return team;
@@ -272,6 +346,8 @@ export interface SquadIntegrityIssue {
     | 'duplicate-bench-entry'
     | 'unknown-player'
     | 'player-without-role'
+    | 'too-many-pool-players'
+    | 'duplicate-player-id'
     | 'invalid-slot-count'
     | 'duplicate-slot-id'
     | 'slot-out-of-bounds';
@@ -329,6 +405,15 @@ export function validateSquadIntegrity(team: Team): SquadIntegrityIssue[] {
     if (!slotted.has(p.id) && !benched.has(p.id)) {
       add('player-without-role', `${p.name || p.id} is neither a starter nor a substitute.`);
     }
+  }
+
+  // The squad pool: bounded, and a player is either in the matchday squad or in the pool, never both.
+  const pool = getPool(team);
+  if (pool.length > MAX_POOL_PLAYERS) add('too-many-pool-players', `More than ${MAX_POOL_PLAYERS} players in the squad pool.`);
+  const seen = new Set<Id>(ids);
+  for (const p of pool) {
+    if (seen.has(p.id)) add('duplicate-player-id', `Player ${p.name || p.id} appears more than once in the squad.`);
+    seen.add(p.id);
   }
 
   return issues;

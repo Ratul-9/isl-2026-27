@@ -14,7 +14,7 @@ import { clampPoint, clientToPitch, distanceMetres, snapPoint } from '@/domain/g
 import type { Orientation } from '@/domain/geometry';
 import { findPlayerAt } from '@/domain/layout';
 import type { Drawing, Id, Point, TeamSide } from '@/domain/types';
-import { useMatch, useMatchActions } from '@/store/MatchContext';
+import { useMatch, useMatchActions, useMatchAnalysis } from '@/store/MatchContext';
 import type { BoardSelection, Tool } from './boardTypes';
 import { MARKER_RADIUS } from './pitchTheme';
 
@@ -57,6 +57,7 @@ interface Options {
 export function useBoardInteraction({ svgRef, orientation, snap, tool, selection, onSelect }: Options) {
   const match = useMatch();
   const actions = useMatchActions();
+  const analysis = useMatchAnalysis();
   const [ix, setIx] = useState<Interaction | null>(null);
 
   const toPitch = (e: PointerEvent): Point | null => {
@@ -66,7 +67,12 @@ export function useBoardInteraction({ svgRef, orientation, snap, tool, selection
   const free = (p: Point) => (snap ? snapPoint(p) : p);
   /** A point snapped onto a nearby player, else the free (optionally grid-snapped) point. */
   const anchor = (p: Point): { point: Point; playerId?: Id } => {
-    const hit = findPlayerAt(match, p, PLAYER_SNAP_METRES);
+    // Arrows attach to who is on the pitch now, not to the starting XI.
+    const live = {
+      home: { ...match.home, slots: analysis.lineups.home.slots },
+      away: { ...match.away, slots: analysis.lineups.away.slots },
+    };
+    const hit = findPlayerAt(live, p, PLAYER_SNAP_METRES);
     return hit ? { point: hit.point, playerId: hit.playerId } : { point: free(p) };
   };
   const eraseAt = (p: Point, ids: Id[]) => {

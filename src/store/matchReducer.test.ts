@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { at, goal, squadMatch, sub, withEvents } from '@/domain/eventFixtures';
 import { fullTeam } from '@/domain/fixtures';
 import { createMatch } from '@/domain/match';
 import type { PlayerDraft } from '@/domain/squad';
@@ -192,5 +193,121 @@ describe('matchReducer: drawing actions', () => {
     m = matchReducer(m, { type: 'drawings/delete', ids: ['a', 'zzz'] });
     expect(m.drawings.map((d) => d.id)).toEqual(['b']);
     expect(matchReducer(m, { type: 'drawings/delete', ids: ['nope'] })).toBe(m);
+  });
+});
+
+describe('matchReducer: clock and events', () => {
+  const T0 = Date.UTC(2026, 9, 10, 19, 30);
+  const MIN = 60_000;
+
+  it('advances periods, records timeline markers and keeps the status in step', () => {
+    let m = squadMatch();
+    expect(m.status).toBe('scheduled');
+    m = matchReducer(m, { type: 'clock/advance', to: 'firstHalf', now: T0, idSeed: 'k' });
+    expect(m.clock).toMatchObject({ period: 'firstHalf', runningSinceEpochMs: T0 });
+    expect(m.status).toBe('inProgress');
+    expect(m.events).toEqual([{ id: 'k-1', type: 'periodMarker', marker: 'kickoff', period: 'firstHalf', matchTimeMs: 0 }]);
+
+    m = matchReducer(m, { type: 'clock/advance', to: 'halfTime', now: T0 + 46 * MIN, idSeed: 'h' });
+    m = matchReducer(m, { type: 'clock/advance', to: 'secondHalf', now: T0 + 61 * MIN, idSeed: 's' });
+    m = matchReducer(m, { type: 'clock/advance', to: 'fullTime', now: T0 + 109 * MIN, idSeed: 'f' });
+    expect(m.status).toBe('completed');
+    expect(m.events.map((e) => (e.type === 'periodMarker' ? e.marker : e.type))).toEqual([
+      'kickoff',
+      'halfTime',
+      'secondHalfKickoff',
+      'fullTime',
+    ]);
+    // Invalid transitions are ignored.
+    expect(matchReducer(m, { type: 'clock/advance', to: 'secondHalf', now: T0, idSeed: 'x' })).toBe(m);
+  });
+
+  it('starts, pauses and corrects the clock', () => {
+    let m = matchReducer(squadMatch(), { type: 'clock/advance', to: 'firstHalf', now: T0, idSeed: 'k' });
+    m = matchReducer(m, { type: 'clock/pause', now: T0 + 10 * MIN });
+    expect(m.clock).toMatchObject({ elapsedMs: 10 * MIN, runningSinceEpochMs: null });
+    expect(matchReducer(m, { type: 'clock/pause', now: T0 + 11 * MIN })).toBe(m);
+    m = matchReducer(m, { type: 'clock/correct', elapsedMs: 12 * MIN, now: T0 + 20 * MIN });
+    expect(m.clock.elapsedMs).toBe(12 * MIN);
+    m = matchReducer(m, { type: 'clock/start', now: T0 + 21 * MIN });
+    expect(m.clock.runningSinceEpochMs).toBe(T0 + 21 * MIN);
+    // Correcting back to pre-match leaves the manually chosen status alone.
+    m = matchReducer({ ...m, status: 'inProgress' }, { type: 'clock/correct', period: 'notStarted', elapsedMs: 0, now: T0 });
+    expect(m.status).toBe('inProgress');
+  });
+
+  it('adds valid events, refuses invalid ones, and edits in place', () => {
+    let m = squadMatch();
+    const g = goal(m, 'home', at(10), { scorer: 'home-p9', id: 'g' });
+    m = matchReducer(m, { type: 'event/add', event: g });
+    expect(m.events).toEqual([g]);
+    expect(matchReducer(m, { type: 'event/add', event: g })).toBe(m); // duplicate id
+    expect(matchReducer(m, { type: 'event/add', event: goal(m, 'home', at(11), { scorer: 'away-p9' }) })).toBe(m);
+
+    const s = sub(m, 'home', at(5), 'home-p8', 'home-s0', 's');
+    m = matchReducer(m, { type: 'event/add', event: s });
+    const edited = { ...g, scorerId: 'home-p10' };
+    m = matchReducer(m, { type: 'event/update', event: edited });
+    expect(m.events.map((e) => e.id)).toEqual(['g', 's']); // array position kept
+    expect(m.events[0]).toEqual(edited);
+    expect(matchReducer(m, { type: 'event/update', event: { ...s, inPlayerId: 'home-p9' } as typeof s })).toBe(m);
+
+    m = matchReducer(m, { type: 'event/delete', id: 'g' });
+    expect(m.events.map((e) => e.id)).toEqual(['s']);
+    expect(matchReducer(m, { type: 'event/delete', id: 'nope' })).toBe(m);
+  });
+
+  it('refuses to remove a player referenced by events', () => {
+    const base = squadMatch();
+    const m = withEvents(base, goal(base, 'home', at(10), { scorer: 'home-p9' }));
+    expect(matchReducer(m, { type: 'player/remove', side: 'home', playerId: 'home-p9' })).toBe(m);
+    const removed = matchReducer(m, { type: 'player/remove', side: 'home', playerId: 'home-p1' });
+    expect(removed.home.players.some((p) => p.id === 'home-p1')).toBe(false);
+  });
+});
+
+describe('matchReducer: patterns after substitutions', () => {
+  it('attaches pattern arrows to the player now on the pitch while leaving the starting XI alone', () => {
+    const base = squadMatch();
+    // The striker (home-p9) is replaced by home-s0 before the pattern is applied.
+    let m = withEvents(base, sub(base, 'home', at(60), 'home-p9', 'home-s0'));
+    const startingSlots = m.home.slots;
+    m = matchReducer(m, { type: 'pattern/apply', side: 'home', patternId: 'counterattack', idSeed: 'p' });
+
+    const hints = m.drawings.flatMap((d) => [d.fromPlayerId, d.toPlayerId]);
+    expect(hints).toContain('home-s0');
+    expect(hints).not.toContain('home-p9');
+    // Starting XI occupants are untouched (only geometry changed).
+    expect(m.home.slots.map((s) => s.playerId)).toEqual(startingSlots.map((s) => s.playerId));
+    expect(m.home.slots.map((s) => s.id)).toEqual(startingSlots.map((s) => s.id));
+  });
+
+  describe('jersey display', () => {
+    const origin = (presetId: string) => ({
+      presetId, league: 'isl', season: '2026-27', snapshotAt: '', verifiedAt: null, officialName: presetId,
+      shortName: null, abbreviation: null, city: null, logoUrl: null, profileUrl: null, coach: null,
+    });
+    const presetMatch = () => {
+      const m = createMatch();
+      return { ...m, home: { ...m.home, preset: origin('isl-club-1874') } };
+    };
+
+    it('switches between circles and jerseys for a preset team, and refuses jerseys for custom teams', () => {
+      const custom = createMatch();
+      expect(matchReducer(custom, { type: 'display/setPlayers', mode: 'jerseys' })).toBe(custom);
+      const m = presetMatch();
+      const on = matchReducer(m, { type: 'display/setPlayers', mode: 'jerseys' });
+      expect(on.playerDisplay).toBe('jerseys');
+      expect(matchReducer(on, { type: 'display/setPlayers', mode: 'jerseys' })).toBe(on);
+      expect(matchReducer(on, { type: 'display/setPlayers', mode: 'circles' }).playerDisplay).toBe('circles');
+      // Nothing else changes.
+      expect({ ...on, playerDisplay: undefined }).toEqual({ ...m, playerDisplay: undefined });
+    });
+
+    it('sets a kit only for a team that has a kit theme', () => {
+      const m = presetMatch();
+      expect(matchReducer(m, { type: 'team/setKit', side: 'home', kit: 'away' }).home.kit).toBe('away');
+      expect(matchReducer(m, { type: 'team/setKit', side: 'away', kit: 'away' })).toBe(m);
+    });
   });
 });

@@ -7,7 +7,7 @@ import type { SetupScope } from '@/domain/match';
 import { useMatch } from '@/store/MatchContext';
 import { cn } from '@/lib/cn';
 
-export interface SectionEntry {
+interface SectionEntry {
   scope: SetupScope;
   label: string;
   icon: ReactNode;

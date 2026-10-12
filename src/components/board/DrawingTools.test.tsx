@@ -329,3 +329,31 @@ describe('touch input', () => {
     expect(drawings()).toHaveLength(1);
   });
 });
+
+describe('touch: preventing page pan only where something is draggable', () => {
+  // Browsers ignore `touch-action` on SVG children, so a native non-passive touchstart handler
+  // does the job. (Real pan/cancel behaviour was verified in Chromium; this guards the contract.)
+  const touchstart = (target: Element) => {
+    const event = new Event('touchstart', { bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+
+  it('cancels the pan for players and arrows in Select mode, but not for open grass', async () => {
+    const user = setup();
+    await pick(user, 'Pass');
+    drawOnGrass([0.55, 0.1], [0.75, 0.1]);
+    await pick(user, 'Select');
+    expect(touchstart(marker('#9 Striker'))).toBe(true);
+    expect(touchstart(drawings()[0].querySelector('path[stroke="transparent"]')!)).toBe(true);
+    const grass = board().querySelector('rect')!; // pitch background
+    expect(touchstart(grass)).toBe(false);
+  });
+
+  it('leaves drawing tools to touch-action: none on the board', async () => {
+    const user = setup();
+    await pick(user, 'Pass');
+    expect(touchstart(marker('#9 Striker'))).toBe(false);
+    expect(board().style.touchAction).toBe('none');
+  });
+});

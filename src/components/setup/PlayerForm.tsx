@@ -36,9 +36,11 @@ interface PlayerFormProps {
   onAccepted?: () => void;
   /** Move focus to the name field on mount (used when editing and after each add). */
   autoFocusName?: boolean;
+  /** Hide the lineup-role choice (squad-pool players have no role until they are moved into the squad). */
+  hideRole?: boolean;
 }
 
-export function PlayerForm({ initial, submitLabel, onSubmit, onCancel, onAccepted, autoFocusName }: PlayerFormProps) {
+export function PlayerForm({ initial, submitLabel, onSubmit, onCancel, onAccepted, autoFocusName, hideRole }: PlayerFormProps) {
   const [name, setName] = useState(initial.name);
   const [numberText, setNumberText] = useState(initial.shirtNumber === null ? '' : String(initial.shirtNumber));
   const [position, setPosition] = useState<PositionCode>(initial.preferredPosition);
@@ -98,15 +100,17 @@ export function PlayerForm({ initial, submitLabel, onSubmit, onCancel, onAccepte
         >
           <PositionOptions />
         </SelectField>
-        <SelectField
-          label="Lineup role"
-          value={role}
-          error={errors.role}
-          onChange={(e) => setRole(e.target.value as LineupRole)}
-        >
-          <option value="starter">Starting XI</option>
-          <option value="substitute">Substitute</option>
-        </SelectField>
+        {hideRole ? null : (
+          <SelectField
+            label="Lineup role"
+            value={role}
+            error={errors.role}
+            onChange={(e) => setRole(e.target.value as LineupRole)}
+          >
+            <option value="starter">Starting XI</option>
+            <option value="substitute">Substitute</option>
+          </SelectField>
+        )}
       </div>
       <TextAreaField
         label="Notes (optional)"

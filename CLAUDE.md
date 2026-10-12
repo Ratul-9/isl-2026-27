@@ -7,11 +7,11 @@
 
 DizPitch is a **local-first football tactical board and match-analysis web app**. A user creates a match, registers two squads, lays out formations on an SVG pitch, draws tactical arrows (pass / shot / lofted "LD" pass / movement), runs a match clock, records goals / substitutions / cards, and exports the match as JSON or the board as PNG.
 
-In scope: everything in `docs/BUILD_PLAN.md`. Out of scope for this version: backend, accounts, auth, cloud DB, multi-user sync, live data feeds, video.
+In scope: everything in `docs/BUILD_PLAN.md`. Out of scope for this version: backend, accounts, auth, cloud DB, multi-user sync, live data feeds, and storing or streaming video (a short clip may be analysed once and is then discarded; see "Tactical replays").
 
 ## Current state
 
-Phases 0–3 complete: app shell with **Board** (default) and **Setup** views; match setup and roster editor; SVG pitch (landscape/portrait), 10 formations, draggable/keyboard-movable players, reset-to-formation, saved arrangements, 12 tactical patterns; **drawing engine** (Select, Pass, Lofted "LD", Shot, Run, Freehand, Eraser tools; select/move/edit endpoints/notes/convert/reverse/delete; Clear annotations) and **undo/redo** for all board changes. All state is in memory. **No clock, events or persistence yet.** See `docs/IMPLEMENTATION_STATUS.md` for the next phase. Only implement the phase the user explicitly asks for, then stop.
+**All phases (0–7) complete: the product is feature-complete and has been QA'd in a real browser** (see `docs/IMPLEMENTATION_STATUS.md` for the verification matrix and known limitations). Routes: `/` = **match library** (create, open, rename, duplicate, export JSON, import JSON, delete; unreadable entries listed separately) and `/match/[id]` = the workspace with **Board / Events / Replays / Setup** views and an always-visible **scoreboard + clock**. Everything is persisted to `localStorage` with autosave and a save-status indicator, JSON export/import is validated with zod, and the board exports to **PNG**. Underneath: match setup and roster editor; SVG pitch, 10 formations, draggable players, saved arrangements, 12 tactical patterns; drawing engine + undo/redo; match events UI on the Phase 4 domain logic; the board renders the derived active lineup. Phase 7 added a responsive pass (phone/tablet/desktop), WCAG AA contrast fixes, touch-drag and stale-hidden-route fixes found only in a real browser, and dead-code cleanup. **Post-Phase 7 feature — image-to-match import:** the library offers **Create match manually** and **Create from lineup images** (`/import`). Two uploaded starting-lineup graphics are read by a server-side vision model, shown in an editable review screen, and only after explicit confirmation turned into an ordinary saved match (see "Lineup image import" below). Reading needs `GEMINI_API_KEY` (Google Gemini API) on the server; without it the screen explains how to enable it and offers manual entry. **Post-Phase 7 feature — tactical replays from video clips:** a fourth workspace view, **Replays**, stores animated reconstructions of short events on the match (`Match.replays`, persisted schema v2). A user imports a short clip, the server sends it to Gemini, the answer becomes an *editable* keyframed replay on the existing pitch (positions are estimates, never tracking data), and the saved replay plays back from its stored data with no clip and no further AI request. Replays can also be annotated by hand without any key (see "Tactical replays" below). Needs `GEMINI_API_KEY` on the server. **Post-Phase 7 feature — computer-vision tracking (the primary video path):** **Replays → Track a video** sends a chosen segment (≤ 15 s) of a video to a separate local Python service (`cv-service/`, FastAPI) that detects players/goalkeepers/referees/ball with dedicated detection models (Roboflow YOLOv8 weights run by Ultralytics), tracks them with ByteTrack and estimates a pitch homography; the result becomes a reviewable *tracked replay* (`origin: 'tracking'`, `TacticalReplay.tracking`, persisted schema v3) shown as the source video with an overlay beside the pitch. No LLM is involved. See "Computer-vision tracking" below and `cv-service/README.md`. **Post-Phase 7 feature — team presets (ISL 2026-27):** `/new` ("Create match", opened by **Create from ISL teams** in the library) offers **ISL presets** or **Custom teams**. Presets are reusable, season-scoped data (club, head coach, full squad, official logo/headshot *URLs*) imported from the league's website by a maintenance CLI (`npm run presets -- …`, `scripts/presets.ts`) into static files under `public/presets/`; creating a match **snapshots** the two chosen teams into the ordinary match (invariants 45–49). The ~30-man squad goes to a per-team **squad pool** next to the ≤ 22 matchday squad; the user still chooses the XI/bench. Persisted schema v4 (all new fields optional). Needs no key; the data needs `npm run presets -- fetch --profiles --apply` once. See `docs/TEAM_PRESETS.md`. **Post-Phase 7 feature — jersey display:** for teams created from a preset the Board offers **Circles | Jerseys** (`Match.playerDisplay`, `Team.kit`, schema v5); players are drawn as simplified team-coloured shirts with the squad number on the back (invariants 50–53). See `docs/IMPLEMENTATION_STATUS.md` for the next phase. Only implement the phase the user explicitly asks for, then stop.
 
 ## Stack
 
@@ -23,11 +23,15 @@ Phases 0–3 complete: app shell with **Board** (default) and **Setup** views; m
 | Fonts | System font stack (deliberately **not** `next/font/google`, so builds work offline and PNG export can rely on system fonts) |
 | Pitch / arrows / markers | Hand-written SVG; drag via Pointer Events (no DnD library) |
 | State | Pure domain functions + one `useReducer` per open match, exposed via React context |
-| Persistence | `localStorage` behind a repository interface (Phase 6; swappable for IndexedDB) |
-| Validation | `zod` (installed in Phase 1, first used for import/storage validation in Phase 6) |
+| Persistence | `localStorage`, one key per match (`dizpitch:match:<id>`), behind `MatchRepository` (`src/persistence/repository.ts`); in-memory fallback when storage is blocked |
+| Validation | `zod` schema (`src/persistence/schema.ts`) for everything read from storage or imported |
+| Vision extraction | Official `@google/genai` (Gemini API), **server-side only** (`src/app/api/extract-lineup/route.ts`); `models.generateContent` with `responseMimeType: 'application/json'` + `responseJsonSchema` (from the zod schema), re-validated with zod; key from `GEMINI_API_KEY`, model `LINEUP_EXTRACTION_MODEL` (default `gemini-3.8-flash`), optional `GEMINI_BASE_URL`. No in-browser OCR. |
+| Video analysis | Same `@google/genai` SDK, server-side only (`src/app/api/analyze-video/route.ts`): Files API upload → poll until `ACTIVE` → **one** `generateContent` with `videoMetadata.fps` and a JSON schema → delete the file. Model `GEMINI_MODEL` (default `gemini-3.8-flash`), limits `VIDEO_MAX_MB` / `VIDEO_MAX_SECONDS` / `VIDEO_SAMPLING_FPS`. No FFmpeg: Gemini's per-part frame rate does the sampling. |
+| CV tracking | Separate Python 3.12 service in `cv-service/` (uv, FastAPI, OpenCV, PyTorch, Ultralytics, Roboflow `trackers` ByteTrack), isolated from the npm dependencies. Reached only through the same-origin proxy `src/app/api/cv/[...path]/route.ts` (`CV_SERVICE_URL`, default `http://127.0.0.1:8001`). Weights (~420 MB) are downloaded by `cv-service/scripts/download_models.sh`, never committed. **AGPL-3.0 (Ultralytics) — licence decision open, see cv-service/README.md** |
+| Team presets | Static, validated JSON in `public/presets/<league>/<season>.json` (+ `index.json`), loaded in the browser with the same zod schema the importer uses. Importer: `scripts/presets.ts` run with `tsx` (dev dependency, so the CLI shares `src/presets/**` instead of duplicating it); reads only public club/squad/profile HTML from indiansuperleague.com (robots-aware, 1 req/s), never its `/api`. Images are referenced by URL, never stored |
 | Icons | `lucide-react` |
 | Tests | Vitest + React Testing Library + jsdom (`@testing-library/jest-dom`) |
-| PNG export | Serialise the pitch SVG to a canvas by hand (no screenshot library) — finalised in Phase 6 |
+| PNG export | Clone the board `<svg>`, strip interaction parts, serialise, rasterise via `Image` + canvas (`components/pitch/exportBoard.ts`); no screenshot library |
 | Package manager | `npm` (commit `package-lock.json`) |
 
 Notes on versions: TypeScript is whatever `create-next-app` installed (5.9.x). `@types/node` is `^24` because Vitest 5 peers require `^22 || >=24` (the scaffold's `^20` caused an ERESOLVE). `npm audit` reports high-severity advisories that originate only in the ESLint/`eslint-config-next` dev-tooling chain; the suggested `--force` fix downgrades `eslint-config-next`, so it was **not** applied.
@@ -38,17 +42,26 @@ Dependency rule: add a library only when it replaces non-trivial, error-prone co
 
 ```
 src/
-  app/                 Next routes only. Currently `/` mounts <MatchWorkspace/>. No business logic.
+  app/                 Next routes only: `/` → LibraryRoute, `/match/[id]` → MatchRoute (params read under <Suspense>). No business logic.
+  persistence/         schema.ts (zod), migrate.ts, document.ts (versioned envelope, parse/serialize/export names),
+                       repository.ts (MatchRepository, localStorage + memory stores, error classification),
+                       RepositoryContext.tsx, testFixtures.ts/testHelpers.tsx (tests only)
   components/
-    MatchWorkspace.tsx Workspace shell: header (Board/Setup tabs) + BoardView or SetupView
-    ui/                Button, fields (TextField/SelectField/TextAreaField), Section, ConfirmBar
-    layout/            AppHeader (workspace tabs), SetupNav
+    AppProviders.tsx   ClientOnly + RepositoryProvider; wrapped by each route component (LibraryRoute, MatchRoute), NOT the root layout
+    library/           LibraryView (+ EntryCard): the match library
+    routes/            LibraryRoute, MatchRoute/MatchLoader (load → validate → <MatchWorkspace/>)
+    persistence/       AutosaveProvider (debounced autosave, derived status), SaveIndicator, ExportJsonButton
+    MatchWorkspace.tsx Workspace shell: sticky header + Scoreboard (shared by all views) + BoardView | EventsView | SetupView
+    ui/                Button, fields (TextField/SelectField/TextAreaField), Section, ConfirmBar, ClientOnly, useFullscreen
+    layout/            AppHeader (Board/Events/Replays/Setup tabs), SetupNav
+    match/             Scoreboard (+ ClockCorrection, clockActions, useNow), EventsView, EventForm (+ EventFields, WhenFields,
+                       PlayerSelect), Timeline, eventFormModel (pure form model: state ↔ event, candidates, player groups)
     setup/             MatchDetailsForm, OfficialsForm, TeamSetup, RosterEditor, PlayerForm, SetupChecklist
     pitch/             TacticalBoard (SVG composition), useBoardInteraction (pointer state machine), PitchMarkings,
                        PlayerMarker, DrawingLayer (shapes, LD badge, notes, endpoint handles), drawingPath (SVG path maths),
-                       drawingStyle, pitchTheme, labels, boardTypes (Tool, BoardSelection)
+                       drawingStyle, pitchTheme, labels, boardTypes (Tool, BoardSelection), exportBoard (PNG)
     board/             BoardView (tools + pitch + side panels, keyboard shortcuts), DrawingToolbar, DrawingPanel/DrawingList,
-                       FormationPanel/SavedLayoutsPanel, PatternPanel, SelectionPanel, playerLabel, boardTestUtils (tests only)
+                       FormationPanel/SavedLayoutsPanel, PatternPanel, SelectionPanel, BenchPanel, playerLabel, boardTestUtils (tests only)
   domain/              PURE TypeScript. No React, no DOM, no storage. Never call Date.now()/Math.random() here except ids.ts.
     types.ts           Core entity types
     ids.ts             `createId(prefix)` — the only place randomness is allowed
@@ -58,27 +71,85 @@ src/
     layout.ts          11 fixed slots; template assignment, apply/reset formation, move, capture, isLayoutModified
     patterns.ts        12 tactical patterns (pure, team frame) + applyPattern → slots + tagged drawings
     drawings.ts        Drawing kinds, lofted Bézier maths, hit testing, translate/reverse, freehand sampling, sanitizeDrawing
+    time.ts            Periods (order/labels), period bounds & anchors, football minutes ("45+2'"), mm:ss, time validation
+    clock.ts           Clock state machine (advance/start/pause/correct), transition markers, read-out, live event time
+    eventTime.ts       suggestEventTime, (period, minute, added) ↔ matchTimeMs for forms (keeps exact ms when minute unchanged)
+    lineup.ts          Active-lineup state: substitution/card validity + application, derived lineup
+    events.ts          Event ordering, analyzeEvents (validation + lineups + score in one pass), change/deletion checks, timeline text
+    score.ts           computeScore (valid goal events per credited team)
+    duplicate.ts       cloneMatchWithNewIds (remaps every id/reference; used by Duplicate and colliding imports)
     squad.ts           Roster rules: add/update/remove, role changes, caps, shirt numbers, integrity check
     match.ts           createMatch, display names, date/time/duration validation, setup checklist issues
-    testing.ts, fixtures.ts  Test helpers (emptyTeam, fullTeam 4-3-3 squad)
+    testing.ts, fixtures.ts, eventFixtures.ts  Test helpers (emptyTeam, fullTeam 4-3-3 squad, event builders)
   store/
     matchReducer.ts    Pure reducer + MatchAction union + BOARD_ACTION_TYPES
     history.ts         Undo/redo wrapper (board snapshots: slot geometry by id, formations, drawings, saved layouts)
-    MatchContext.tsx   <MatchProvider>, useMatch(), useMatchActions(), useBoardHistory()
-  lib/cn.ts            classnames helper
+    MatchContext.tsx   <MatchProvider>, useMatch(), useMatchActions(), useBoardHistory(), useMatchAnalysis()
+  lib/cn.ts, lib/download.ts   classnames helper; downloadBlob/downloadText/readFileText
+  domain/replay/         PURE. coords.ts (0–100 ↔ canonical ↔ view, rounding), interpolate.ts (Hermite sampling, path progress,
+                         annotations, duration), clock.ts (playback state machine), build.ts (analysis → replay, timestamp mapping),
+                         edit.ts (immutable edit ops), integrity.ts (validateReplay, repairReplay), limits.ts, eventTypes.ts,
+                         fixtures.ts (TEST-ONLY hand-written analysis)
+  video-analysis/        Server: config.ts (env), schema.ts (lenient wire schema + failure/limit types), prompt.ts, media.ts (magic-byte
+                         sniff + size/duration checks), normalize.ts (clamp/drop/report), provider.ts (VideoProvider seam),
+                         geminiVideoProvider.ts (Files API + generateContent + error mapping), service.ts. Browser: client.ts
+  lib/gemini.ts          Shared Gemini helpers: toGeminiSchema, replyText, classifyGeminiError (lineup + video providers)
+  app/api/analyze-video/route.ts   GET status + limits / POST multipart clip → analysis (server only; `await connection()`)
+  domain/tracking/       PURE. homography.ts (normalised DLT, LOO error, collinearity), landmarks.ts (named 105x68 landmarks + line
+                         polylines), sample.ts (effective points: edits > manual calibration > auto; sampleTracking, ballTrail, trackSide,
+                         manualSolver), overlay.ts (boxes per frame, object-fit maths, projected pitch lines), edit.ts (team mapping,
+                         assign/merge/hide, set position, reject, calibration), build.ts (service result → TrackingData → replay,
+                         validateTracking), limits.ts, fixtures.ts (TEST-ONLY)
+  tracking/              Browser side: schema.ts (zod for the service's schemaVersion 1), client.ts (health, XHR upload progress, job
+                         polling, result validation, cancel), proxy.ts (path whitelist), segment.ts; __fixtures__/real-result-147s.json
+                         (REAL service output on the test clip, trimmed to 50 frames)
+  app/api/cv/[...path]/route.ts   streaming pass-through to cv-service (health, analyze, scan, jobs/{id}, results/{id} only)
+  components/tracking/   TrackingImport (+ CvServiceStatus, SegmentPicker, JobProgressView), TrackingEditor (+ TeamsPanel, TracksPanel,
+                         TrackDetail, CalibrationPanel, TrackingDetails), TrackingViewer, TrackingStage (video | pitch + controls),
+                         TrackingVideo (+ drawOverlay), TrackingPitch, AttachVideo, trackStyle, useTrackNames
+cv-service/              Python service (see its README): app/ (config, video_io, detector, tracker, pitch, pitch_calibration,
+                         team_assignment, trajectory, processing, scan, jobs, main, diagnostics, cli, schemas), tests/, scripts/,
+                         schema/tracking-result.v1.schema.json, models/ (git-ignored)
+  components/replay/     ReplaysView (list + modes), ReplayList, ClipImport, ReplayEditor (+ EventPanel, ActorsPanel, TimelinePanels),
+                         ReplayViewer, ReplayPlayer, ReplayPitch, ReplayMarker, ReplayControls, useReplayClock, NumberField
+  domain/lineupImport/   PURE. types (ExtractedLineup → DraftTeam), formation.ts (parseFormation), orientation.ts, assign.ts
+                         (starters → formation slots), draft.ts (draftFromExtraction, review edit ops, validateDraftTeam,
+                         tidyNames), toMatch.ts (buildMatchFromDrafts), fixtures.ts (hand-transcribed ground truth)
+  lineup-extraction/     Image reading service. schema.ts (zod, wire types), prompt.ts, config.ts (env), provider.ts (LineupProvider,
+                         ExtractionFailed), geminiProvider.ts (SDK call + error mapping), service.ts (validate request → provider → normalizeOutput),
+                         normalize.ts, imageType.ts, imageFile.ts (browser prep/downscale), client.ts (browser → route)
+  app/api/extract-lineup/route.ts   GET status / POST image → lineup (server only; `await connection()`)
+  app/import/page.tsx + components/routes/ImportRoute.tsx   the `/import` route (AppProviders below the page)
+  components/lineupImport/   LineupImportView (flow), ImageSlot, TeamReview, FormationPreview, MetadataForm
+  domain/presets/        PURE. types.ts (PlayerPreset/TeamPreset/SeasonPresets, the reusable data model), snapshot.ts (preset → match
+                         team, provenance/edits, temporary numbers), toMatch.ts (buildMatchFromPresets), images.ts (safeImageUrl allow-list),
+                         fixtures.ts (TEST-ONLY)
+  presets/               schema.ts (zod, parseSeasonPresets/parseManifest), client.ts (browser loader: not-imported / unreachable / invalid),
+                         quality.ts (cross-record checks + gap summary), diff.ts, overrides.ts, manual.ts (CSV → season, merge by team),
+                         report.ts, isl/ (parse.ts, build.ts, robots.ts; __fixtures__ = excerpts of real pages)
+  scripts/presets.ts     The maintenance CLI (fetch | import | validate); nothing is written without --apply
+  domain/presets/kits.ts PURE. Kit themes per preset team id, colour maths (contrast, ΔE), `chooseKits` (home/away kit, clash handling),
+                         generic away fallback. components/pitch/Jersey.tsx (JerseyDefs, JerseyShape), usePlayerKits.ts;
+                         components/board/PlayerDisplayControl.tsx + KitPanel.tsx
+  components/presets/    NewMatchView (the /new screen), TeamCard, usePresetCatalog; components/ui/RemoteImage + Avatars (TeamLogo, PlayerAvatar);
+                         components/setup/SquadPool + PlayerBadges
+  app/new/page.tsx + components/routes/NewMatchRoute.tsx   the `/new` route (AppProviders below the page)
 ```
 
-Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.ts`, `components/{match,library}/`, `persistence/`. Tests live next to the code: `foo.ts` → `foo.test.ts`.
+Tests live next to the code: `foo.ts` → `foo.test.ts`.
 
 ## Core data model (types in `src/domain/types.ts`)
 
-- `Match` — aggregate root: `id`, flat setup info (`name`, `competition`, `date` `YYYY-MM-DD`, `kickoffTime` `HH:mm`, `venue`, `durationMinutes` default 90 (10–180), `notes`, `status`), `officials` (`referee | assistant1 | assistant2 | fourthOfficial`), `home`, `away`, `drawings: Drawing[]`, `savedLayouts: SavedLayout[]`. Phase 4 adds `events`, `clock`; Phase 6 adds `schemaVersion`.
-- `Team` — `id`, `name`, `coach`, `players: Player[]` (≤ 22), `slots: LineupSlot[]` (**always exactly 11**; filled ones are the XI), `bench: Id[]` (substitutes in order, ≤ 11), `formation: FormationRef` (`{kind:'preset', id}` or `{kind:'saved', id}`).
-- `Player` — `id`, `name`, `shirtNumber` (1–99, unique per team), `preferredPosition`, `notes`. Identity = `id`; name/number freely editable.
+- `Match` — aggregate root: `id`, flat setup info (`name`, `competition`, `date` `YYYY-MM-DD`, `kickoffTime` `HH:mm`, `venue`, `durationMinutes` default 90 (10–180), `notes`, `status`), `officials` (`referee | assistant1 | assistant2 | fourthOfficial`), `home`, `away`, `drawings: Drawing[]`, `savedLayouts: SavedLayout[]`, `events: MatchEvent[]` (array order = insertion order = tie-breaker), `clock: ClockState`, `replays: TacticalReplay[]`. **`schemaVersion` is NOT a field of `Match`**: it lives on the persisted/exported *document envelope* `{ format: 'dizpitch.match', schemaVersion, savedAt, match }` (`persistence/document.ts`), so the domain type stays free of storage concerns.
+- `Team` — `id`, `name`, `coach`, `players: Player[]` (≤ 22, the matchday squad), `slots: LineupSlot[]` (**always exactly 11**; filled ones are the XI), `bench: Id[]` (substitutes in order, ≤ 11), `formation: FormationRef` (`{kind:'preset', id}` or `{kind:'saved', id}`), optional `pool?: Player[]` (≤ 60; registered players not in the matchday squad) and optional `preset?: TeamOrigin` (snapshot of the preset team: ids, season, snapshot time, official name, abbreviation, city, logo URL, imported coach).
+- `Player` — `id`, `name`, `shirtNumber` (1–99, unique per team), `preferredPosition`, `notes`, optional `origin?: PlayerOrigin` (preset provenance: `presetId`, `season`, `imported` {name, shirtNumber|null, position}, `sourcePosition`, `nationality`, `dateOfBirth`, `photoUrl`, `profileUrl`). Identity = `id`; name/number freely editable; `origin` is never edited.
 - `LineupSlot` — `id` (stable for the team's lifetime), `playerId | null`, `position` (label from the formation, manually overridable), `x`, `y` (absolute canonical). **The slot owns the pitch position**; formations/patterns move slots, never reassign players. A player's role is *derived*: in a slot ⇒ starter, in `bench` ⇒ substitute.
 - `SavedLayout` — `id`, `name`, `baseFormation`, `slots: TemplateSlot[]` (team frame, reusable by either team). Stored on the match for now.
 - `Drawing` — `id`, `kind` (`pass | lofted | shot | movement | freehand`), `from`, `to`, `points?` (freehand only; from/to = first/last point), optional `fromPlayerId`/`toPlayerId` hints, `note?` (≤ 60 chars), `source?: {patternId, teamId}` for pattern-generated arrows (dropped as soon as the user edits the drawing). All stored drawings pass `sanitizeDrawing` (clamped, min length 1.5 m arrows / 1 m freehand).
-- `MatchEvent`, `ClockState` — see `docs/BUILD_PLAN.md` §2; not yet implemented.
+- `Period` — `notStarted | firstHalf | halfTime | secondHalf | extraTimeFirstHalf | extraTimeSecondHalf | fullTime` (spec's single "Extra Time" is split into two halves for 105+X' notation). Half length = `durationMinutes / 2`; extra-time halves are 15 min.
+- `ClockState` — `{ period, elapsedMs, runningSinceEpochMs, endedPeriod }`; `elapsedMs` is within the current period (during a break: the final elapsed of `endedPeriod`).
+- `TacticalReplay` — `id`, `title`, `createdAt`/`updatedAt`, `origin` `ai|manual|tracking`, `tracking: TrackingData | null` (only for `tracking`: frame times, per-frame calibration + camera motion, colour clusters → sides, tracks with image boxes/foot points/pitch points/provenance and user edits; see "Computer-vision tracking"), `attackingSide` (+ `attackingSideAssumed`), `source` (clip metadata only: name, type, size, duration, model, fps — never the bytes), `original` (the unedited AI analysis, or null), `event` (type, description, `startSeconds`/`endSeconds` *in the clip*, clock, period, outcome, confidence, evidence, uncertainty), `actors` (players/ball: `side` home|away|null, label, optional name/shirt number/`playerId` hint), `keyframes` (`t` seconds from replay start → `positions[actorId] = {x,y,confidence,source}`), `paths` (pass|lofted|shot|movement arrows with times, fixed ends and/or attached actors), `annotations`, `notes`. Coordinates are **0–100 in the canonical frame** (÷100 = the app's 0–1). Caps live in `domain/replay/limits.ts` (20 replays/match, 30 actors, 80 keyframes, 60 paths, 40 labels).
+- `MatchEvent` — `id`, `period`, `matchTimeMs` (continuous scale: 2nd half starts at the half length; stoppage runs past a period's end) plus one of: `goal {teamId = CREDITED team, scorerId?, assistId?, goalType: normal|penalty|freeKick|header|ownGoal, notes?}`, `substitution {teamId, outPlayerId, inPlayerId, reason?}`, `yellowCard|redCard {teamId, playerId, notes?}`, `note {text, teamId?}`, `periodMarker {marker}` (kick-off, half-time, … auto-recorded by `clock/advance`).
 
 ## Invariants (do not break)
 
@@ -86,12 +157,12 @@ Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.
 2. **Pitch coordinates are normalised 0–1 in a single canonical frame:** `x` runs along the pitch length (0 = left goal line, 1 = right goal line), `y` across the width (0 = top touchline, 1 = bottom). Orientation (landscape/portrait) is a *render-time* transform only. The real pitch is ~105×68 m, so normalised space is **not** isotropic — convert to metres before computing distances or angles.
 3. Formation/pattern templates are in the **team frame** (attacking toward `x = 1`, `y = 0` on the team's own left). The away side is converted with a **180° rotation (`x → 1 − x`, `y → 1 − y`)** when a layout is applied — *not* an x-only mirror, which would put the away left back on the wrong touchline. (Corrected in Phase 2.) Stored slot coordinates are always absolute.
 4. Drawings are independent of player positions. Endpoints are coordinates; an optional `playerId` is only a hint. Arrows do not follow players.
-5. **Score is derived** from goal events (own goal credits the opponent). Never stored.
-6. **Active lineup is derived**: fold valid substitution events (ordered) over the starting `slots`; red cards remove a player without replacement. Editing/deleting any event re-derives, never patches.
-7. **Event order**: sort by `(periodIndex, matchTimeMs, insertion order)`; insertion order is the stable tie-breaker. Stoppage notation (`45+2'`) is display-only.
+5. **Score is derived** from VALID goal events (`analyzeEvents(...).score` / `computeScore`). An own goal is stored with `teamId` = credited team and `scorerId` = responsible player from the *other* squad. Never stored.
+6. **Active lineup is derived** (`analyzeEvents(...).lineups`): fold valid substitutions and dismissals, in event order, over the starting `slots`. The substitute takes the outgoing player's *slot* (and board position); players subbed off can't return; red card or second yellow empties the slot. **Never mutate `Team.slots` for match events** — `slots` is the starting XI. Editing/deleting any event re-derives; later events a correction invalidates are flagged (errors) and skipped, so derived lineups never contain duplicates.
+7. **Event order**: `(periodIndex, matchTimeMs, array index)`. Edits keep the event's array position. Always pair match time with its period (first-half 47:00 ≠ second-half 47:00). Minute notation (`67'`, `45+2'`) is display-only (`formatMatchMinute`).
 8. **Clock**: while running, elapsed = `elapsedMs + (now − runningSinceEpochMs)`. Never count interval ticks. `now` is passed into pure clock functions; only the UI layer calls `Date.now()`. Persisted `ClockState` restores running and paused states.
-9. Imported JSON and anything read from storage is validated (zod) before entering state. Invalid data yields a readable error, never a crash or partial import.
-10. Persisted documents carry `schemaVersion`; changing the shape requires a migration + test (from Phase 6).
+9. Imported JSON and anything read from storage goes through `parseDocument`/`parseMatchJson` (format marker → schema version → migration → zod schema → cross-field integrity → non-lossy repairs + warnings). Failures return readable, path-prefixed messages (max 8); nothing is partially imported; unknown properties are stripped.
+10. Persisted documents carry `schemaVersion` (envelope). **Changing any persisted shape requires**: bump `CURRENT_SCHEMA_VERSION`, add a `MIGRATIONS[n]` step in `persistence/migrate.ts`, update `schema.ts`, and add a test with a fixture of the old shape. The schema output type is proven equal to `Match` by `asMatch` (compile-time).
 11. Domain logic stays out of components. Components dispatch via `useMatchActions()` and render derived data.
 12. Squad rules (enforced in `domain/squad.ts`): ≤ 22 players/team, ≤ 11 starters, ≤ 11 substitutes, unique shirt numbers *within* a team (the other team may reuse a number), a player is in at most one of {a slot, the bench}. Incomplete squads are allowed during setup.
 13. **Reducers are pure.** IDs are generated by the dispatcher (`useMatchActions`) and passed in the action (pattern drawings use an `idSeed` → `${seed}-${n}`). Rejected operations return the *same* state object.
@@ -100,12 +171,84 @@ Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.
 16. **One gesture = one store action = one undo step.** Gestures live in `useBoardInteraction` state and commit on pointer-up (drag → `slot/move`/`drawing/move`, eraser sweep → one `drawings/delete`, note → on blur/Enter). Board UI state (tool, orientation, snap, selection) lives in `BoardView`, not in `Match`.
 17. **Pointer routing** is one handler set on the `<svg>` with pointer capture. Select tool: DOM target decides (handle → edit endpoint, marker → drag player, arrow → move arrow, grass → deselect). Drawing tools ignore targets and use `findPlayerAt` (pure) so pressing on a player starts an arrow *from* them and never moves them. Don't add pointer handlers to markers or shapes.
 18. **Undo history** (`store/history.ts`) records only `BOARD_ACTION_TYPES`. Snapshots hold slot *geometry* keyed by slot id (label, x, y), formation refs, drawings and saved layouts — never slot occupants or roster — so undo can't resurrect removed players or un-bench anyone. Setup actions bypass history and are never undone. No-op/rejected actions aren't recorded; limit 100. New board action types must be added to `BOARD_ACTION_TYPES`.
+19. **Event validation:** `checkEventChange` must report no errors on the new/edited event itself (the reducer refuses otherwise); warnings (e.g. scorer not on the pitch, player no longer in squad) are allowed. Goals/subs/cards only in playing periods; notes/markers in breaks use the period anchor time. Players referenced by events cannot be removed from the squad (`player/remove` refused; `useMatchActions.removePlayer` returns the reason).
+20. **Clock actions** carry `now` from the dispatcher; `clock/advance` validates the transition, records period markers (ids `${idSeed}-n`) and reconciles `status` (live/HT → `inProgress`, FT → `completed`; pre-match keeps the manual status). Clock and event actions are **not** board actions (never in undo history).
+21. **The scoreboard/clock lives in the workspace shell**, not in a view, so it is one mounted instance across tabs. `useNow()` (a shared 250 ms ticker store) exists only to repaint; time is always derived via `clockReadout(clock, now, …)`. `Date.now()` may be read in UI event handlers/`useMatchActions` and the ticker store, never in `domain/` or reducers.
+22. **Render occupants from the derived lineup** (`useMatchAnalysis().lineups[side].slots`), keyed by slot id; geometry editing (drag/formation/patterns) still targets `Team.slots`. Pattern arrows attach to current occupants (reducer uses `analyzeEvents`) while `Team.slots` occupants stay the starting XI.
+23. **Event forms** are modelled in `match/eventFormModel.ts` (pure, tested): form state → `buildCandidate` → `checkEventChange` runs live; errors block saving, warnings and `newlyInvalid` are shown but allowed. Player pickers offer only who is on the pitch / available *at the form's moment, excluding the event being edited* (`lineupAtMoment`). Own-goal UI: team picker = credited team, scorer list = the *other* squad.
+24. **Never lose in-memory work to a storage problem.** Repository methods return values, never throw. `AutosaveProvider` derives status (`dirty = persisted.match !== match`), debounces 500 ms, flushes on unmount/`pagehide`/hidden, and on failure keeps the match, shows Retry. Undo history, board UI state and the clock ticker are never persisted.
+25. **Importing never overwrites**: a file whose match id already exists becomes a separate copy via `cloneMatchWithNewIds` (name suffixed "(imported)"). Duplicating a match pauses the copy's clock (`pauseClock(clock, now)`).
+26. **Exports show what the screen shows**: PNG = the board `<svg>` minus `[data-handle]`, `[data-draft]`, selection rings, hit areas and `<title>`s, with a concrete font stack and exactly one `xmlns`; JSON = the full document envelope (round-trips byte-for-byte equal data, including a running clock reference and event order).
+
+## Team presets
+
+Flow: `/new` → load `public/presets/index.json` + the season file (validated) → choose two different teams → `buildMatchFromPresets` → `repository.save` → open `/match/[id]`. Maintenance: `npm run presets -- fetch|import|validate` (see `docs/TEAM_PRESETS.md`).
+
+45. **Presets are templates; matches hold snapshots.** A match never links to a live preset. `snapshotTeam` copies name, coach, logo/headshot URLs and the whole squad into the match with fresh ids (`Player.origin.presetId` is provenance, not a reference). Editing a match cannot change a preset; refreshing a preset cannot change an existing match; a player who leaves or transfers stays in historical matches. `cloneMatchWithNewIds` deep-copies `origin`/`preset` and remaps pool players. Test-only synthetic presets live in `domain/presets/fixtures.ts`; **never put mock teams in production UI**.
+46. **`Team.players` stays the matchday squad** (invariant 12 is unchanged: ≤ 22, ≤ 11 starters, ≤ 11 substitutes, every player is a starter or a substitute). The rest of a preset club's squad lives in `Team.pool`; pool players are editable but invisible to the board, derived lineups and event pickers until `pool/promote` moves them in (capacity, 22-player and shirt-number-clash checks, same reasons shown as for adds). `pool/return` is refused while an event names the player (like `player/remove`). Pool actions are not board actions (never in undo history). The importer never picks a lineup or formation.
+47. **Imported data is distinguishable from corrections.** `Player.origin.imported` keeps the values as imported; `playerEdits`/`playerProvenance` show "Corrected", "Added by you" (no `origin`) and "Number missing" (the source gave no usable number, so a temporary one counts down from 99). A source number of `-1`, `0`, > 99 or blank is recorded as null with a note, never invented. Duplicate shirt numbers published by the source are kept (the pool tolerates them; promotion explains the clash).
+48. **Images are referenced, never stored or bundled.** Logos and headshots are copyrighted and the site publishes no terms permitting reuse, so only `https` URLs on the allow-list in `domain/presets/images.ts` are ever requested, lazily, with `referrerPolicy="no-referrer"`, a fixed-size box and a guaranteed initials/abbreviation fallback (`RemoteImage`). Images are not drawn on the SVG board (PNG export stays CORS-clean). `NEXT_PUBLIC_PRESET_IMAGES=off` disables all image requests. A failed image never blocks setup.
+49. **The importer is polite and honest.** It fetches only public club/squad/profile HTML from indiansuperleague.com, checks robots.txt for every URL, waits ≥ 1 s between requests, uses a generic user agent (no personal data), caches raw pages in git-ignored `.cache/`, never calls `/api`/`/apiv3`, and stops (pointing to the manual import) on 401/403/429. A squad is accepted only if its series maps to the requested season on the fixtures page. Output is schema-validated and quality-checked; **nothing is written without `--apply`**, blocking errors refuse apply, the diff flags transfers/departures, and hand corrections live in `data/presets/<league>/<season>.overrides.json` (each with a reason) so a refresh never erases them. Everything unavailable is `null` and listed in `docs/presets/*-import-report.md`.
+
+Persistence: schema **v4** (`Team.pool`, `Team.preset`, `Player.origin`, all optional); migration `3 → 4` is the identity (the bump stops an older build from opening and silently stripping preset data).
+
+## Jersey display
+
+50. **Jerseys are a rendering of existing data, never new state on the board.** `usePlayerKits()` derives, from `Match.playerDisplay` + each team's `preset.presetId` + `Team.kit`, which side draws jerseys; `PlayerMarker`/`ReplayMarker`/`TrackingPitch` only swap the circle for `JerseyShape` inside the same `<g data-slot-id>` with the same transparent `MARKER_RADIUS` hit circle, so pointer routing (invariant 17), arrow trimming, selection ring and drag are unchanged. Display actions (`display/setPlayers`, `team/setKit`) are not board actions and never enter undo history. A custom team never has a kit theme (`hasKitTheme`), so it keeps circles; the reducer refuses jerseys when no side has a theme.
+51. **Kit themes are curated data in `domain/presets/kits.ts`, keyed by preset team id** (not stored in matches, not imported from the site): original simplified designs from documented club colours, each with `verification` and cited `sources`; the generic away kit is flagged `isFallback`. Don't claim a colour is verified beyond what `docs/TEAM_PRESETS.md` records, and don't add sponsor artwork or retail-shirt reproductions.
+52. **Never print an invented number.** `isNumberUnknown(player)` (temporary number from `PlayerOrigin.assignedNumber`, or an unknown-import number in matches that predate it) → jersey without a number and no `#n` in the aria-label. A tracker id is never a shirt number.
+53. **One shared definition set per SVG.** `JerseyDefs` (body clip, shading, per-theme gradients) is rendered once per `<svg>` that draws jerseys; `JerseyShape` is memoised on (kit key, number). Colours are hex constants so PNG export (`prepareBoardSvg`) matches the screen.
+
+Persistence: schema **v5** adds optional `Match.playerDisplay`, `Team.kit`, `PlayerOrigin.assignedNumber`; migration `4 → 5` is the identity.
+
+Tests: `domain/presets/snapshot.test.ts`, `domain/squadPool.test.ts` (pure), `presets/presets.test.ts` (schema, quality, diff, overrides, CSV, loader), `presets/isl/isl.test.ts` (parsers on real page excerpts, season guard, robots), `components/presets/Presets.test.tsx` (the real UI + workspace with injected `PresetDeps`), `presets/dataset.test.ts` (the committed dataset), `persistence/migrate.test.ts` (v3 fixture).
+
+## Lineup image import
+
+Flow: upload (browser validates type by magic bytes, downscales to a 1568 px long edge) → `POST /api/extract-lineup` (server → Google Gemini API) → `normalizeOutput` → `draftFromExtraction` → editable review → `validateDraftTeam` → explicit confirmation → `buildMatchFromDrafts` → `repository.save` → open `/match/[id]`.
+
+27. **The key never reaches the browser.** `GEMINI_API_KEY` is read only in `lineup-extraction/config.ts` on the server; the status endpoint returns `{configured, model, reason}` only. Images go from the DizPitch server to Google's Gemini API and nowhere else; nothing stores them. On a free (unpaid) Gemini key Google may use submitted content to improve its products and humans may review it; paid keys are not used that way (Google's Gemini API terms) — the upload screen and README say so.
+28. **No silent mock.** If the provider is not configured, unreachable, refuses, or returns an unusable reply, the user sees why and can retry or enter that team by hand. Test doubles live only in tests; never wire a fake extractor into the app.
+29. **Provider output is untrusted.** It is zod-validated, then normalised: partial entries are kept and flagged `uncertain` (never dropped); a fully empty entry yields a warning. Names are preserved as displayed (case, accents, initials); "Tidy capitalisation" is opt-in.
+30. **Formation is never guessed.** `parseFormation` returns supported / unsupported / none; unsupported or missing shows a placeholder preset flagged for confirmation. Player→slot assignment uses the graphic's orientation (goalkeeper edge), depth lines and left→right order, and reports `assignmentUncertain`. The uploaded image is only a preview, never the pitch.
+31. **Review gate:** blocking errors (duplicate/missing/invalid shirt numbers, duplicate slots, missing names, >11 starters, >11 subs, >22 players) disable creation; warnings (badge-only team name, uncertain player, incomplete XI, missing formation/coach…) must be acknowledged with the confirmation checkbox. `buildMatchFromDrafts` re-validates and throws `LineupImportError`; it also runs `validateSquadIntegrity`. No events are extracted or created.
+32. **The created match is a normal match** (same `createMatch`, repository, workspace). Unavailable metadata stays blank. Do not add import-specific fields to `Match`.
+
+Tests are split: `lineupImport.test.ts` (pure), `extraction.test.ts` (mocked client + the real `@google/genai` SDK against a local `generateContent` HTTP stand-in — proves plumbing, retries and error mapping, not model quality), component/flow tests with injected `ImportDeps`, and `provider.integration.test.ts` (genuine API; **skipped unless `GEMINI_API_KEY` and `LINEUP_FIXTURE_DIR` are set**). Never describe extraction quality as verified unless the integration test was actually run.
+
+## Tactical replays
+
+Flow: choose a clip (browser checks magic bytes, size, duration against the limits the server reports) → preview and confirm → `POST /api/analyze-video` (multipart; server → Gemini Files API → one `generateContent` → delete) → `normalizeAnalysis` → `replayFromAnalysis` → **review/edit** (draft only) → `saveReplay` → play from stored data.
+
+33. **Replays are estimates and say so.** Positions are labelled as estimated (dashed markers for `source: 'ai'`, solid once the user places them), the viewer carries an "Estimated reconstruction — not tracking data" notice, and the model is told to separate observed from inferred, give confidences and never invent names/numbers/outcomes. A name or shirt number is carried into a replay only when `identityConfidence ≥ 0.5` **and** evidence was given (`IDENTITY_MIN_CONFIDENCE`); the raw answer stays in `original`.
+34. **No fake or repeated analysis.** There is no mock extractor in the app; without a key the screen explains how to enable it and offers manual annotation. The SDK client is created with `retryOptions: { attempts: 1 }` and nothing retries a paid analysis automatically; re-analysing is an explicit, confirmed user action. The uploaded Gemini file is deleted in `finally`.
+35. **The clip is never stored.** Not in `localStorage`, not in the match JSON, not on the server. Only `source` metadata and the derived animation data persist, so a replay plays without the clip. If retaining video is ever needed, use IndexedDB, never `localStorage`.
+36. **Playback is a pure function of (replay, time).** `samplePositions`/`pathProgress`/`activeAnnotation` read nothing else; ONE `requestAnimationFrame` loop (`useReplayClock`) advances `time`, is cancelled when playback stops or the component unmounts, and playing/pausing/scrubbing/resetting never writes to the match. Editing works on a local draft; the match changes only on Save (`replay/save`, never in undo history, never touching board/events/squads).
+37. **Frames:** the model answers in the *attacking team's* frame (x 0 = own goal line → 100; y 0 = its left touchline). `replayFromAnalysis` rotates that into the canonical frame via `fromTeamFrame` for the chosen `attackingSide`; `setAttackingSide` turns every stored point 180° (twice = identity). The attacking team is often unknowable from a clip: it defaults to home with `attackingSideAssumed: true` and the editor flags it. Stored coordinates are rounded to 1/1000 and always in 0–100.
+38. **Persistence bump rules were followed:** schema v2 + migration `1 → 2` (adds `replays: []`) + old-fixture test. `parseDocument` repairs (without data loss) squad links/actor references that no longer exist and reports them as warnings; `cloneMatchWithNewIds` remaps replay ids and squad links; the `original` analysis is copied verbatim (its ids are local labels, not entities).
+
+Tests are split like the lineup feature: `replay.test.ts` (pure), `video.test.ts` (mocked client + the real SDK against a local Files-API/`generateContent` HTTP stand-in — proves plumbing, polling, fps, cleanup and the no-retry rule, **not** that a model understands footage), `Replays.test.tsx` (the real UI with injected `ClipDeps` and a controllable animation-frame clock). There is **no** live-Gemini video test: never claim end-to-end analysis works unless one was run with a real key.
+
+## Computer-vision tracking
+
+Flow: **Replays → Track a video** → health check (setup instructions if the service is down or weights are missing) → choose a file (preview, length read locally) → choose a segment (optional **Find wide shots** scan) → `POST /api/cv/analyze` (streamed through the proxy) → real progress (XHR upload %, then the service's stage + frame counter) → zod-validated result → `trackingFromServiceResult` → `replayFromTracking` → **review** (local draft) → `saveReplay` → play from stored data.
+
+39. **No generative model in this path.** Detection, tracking and calibration are dedicated CV models + deterministic geometry in `cv-service/`. If the service fails, the UI says why; it never falls back to Gemini or any cloud API. The Gemini clip feature remains as a separate, secondary "AI sketch from a clip" button.
+40. **Positions are honest.** Each observation keeps image coordinates (`bbox`, `foot` = bottom-centre) separately from `pitch` (0–100 canonical, `null` when the frame has no calibration — never pseudo-coordinates). Provenance per observation: `detected` / `interpolated` (service bridged a ball gap ≤ 6 frames) / `manual` (user edit). The pitch view interpolates only between observations ≤ 0.5 s apart (`MAX_INTERPOLATION_GAP_S`), smoothing between *adjacent* frames counts as detected, anything across missing frames is drawn dashed, longer gaps are not drawn. Automatic calibration is labelled **unverified** everywhere (the keypoint model can hallucinate a consistent wrong pitch on this footage).
+41. **The user decides identities.** Colour clusters `A`/`B` start with `sideOf: {A: null, B: null}`; tracks are linked to squad players only by hand (`assignPlayer`, one player per track); tracker ids are labelled as tracker numbers, never shirt numbers.
+42. **Corrections are data, not rewrites.** `track.edits[frame]` = `position` (manual point, also for frames the detector missed) or `rejected`; `calibration.autoRejected` and per-shot `calibration.manual[shot]` (≥ 4 landmarks, LOO error with ≥ 5, carried through the shot by the service's camera-motion homographies). Original observations are never modified; `effectivePoints` applies edits at read time.
+43. **One clock.** `useReplayClock` (frame times as step marks → "Next/Previous frame") drives the pitch; the video follows it (native playback at the chosen speed, re-seeked when > 0.12 s off; exact frame seek with a half-frame offset when paused) and the overlay is painted for the frame the video presents (`requestVideoFrameCallback`, rAF fallback only while playing). Verified frame-exact in WebKit against OpenCV's decode.
+44. **The video is never stored.** Only `TrackingData` (≈ 230 KB per 8 s segment; `serializeDocument` writes tracking blocks unindented, since indenting the number arrays made it ≈ 1 MB) is saved; after a reload the viewer offers "choose the same file again" (`AttachVideo`, length compared with the analysed one). Persistence: schema v3 + migration `2 → 3` (`tracking: null`), cross-field `validateTracking` in `parseDocument`, squad-link repair, `cloneMatchWithNewIds` remaps `playerId`.
+
+Tests: `domain/tracking/tracking.test.ts` (pure maths, sampling, edits, real-fixture build), `tracking/client.test.ts` (scripted transport: progress, polling, errors, cancel + DELETE, schema refusal, proxy whitelist, segment rules), `app/api/cv/[...path]/route.test.ts` (forwarding, streaming, refusal, unreachable), `components/tracking/Tracking.test.tsx` (the real UI with injected `TrackingDeps` returning the REAL fixture — proves the flow, not the models), `persistence/replays.test.ts` + `migrate.test.ts` (v2 → v3, round-trip). Python: `cd cv-service && uv run pytest -m "not integration"` (synthetic video with known geometry; fake detectors report ground truth) and `uv run pytest -m integration -s` (real weights on `test_clip.mp4`). Never describe tracking quality as verified beyond what `docs/IMPLEMENTATION_STATUS.md` records.
 
 ## Next.js 16 / hydration rules
 
 - `cacheComponents` is enabled: during server prerender, `Date.now()`, `Math.random()` and `crypto.randomUUID()` are errors/hazards. Match state is created with random IDs, so `<MatchProvider>` renders its children **only on the client** (`ClientOnly` via `useSyncExternalStore`) and shows a loading fallback on the server. Keep any randomness/time inside that client-only subtree, effects, or event handlers.
-- When Phase 6 adds persistence, read storage inside the client-only subtree (effect or `useSyncExternalStore`), never during server render.
-- A client page reads dynamic route params with `use(params)`; route prop types (`LayoutProps`, `PageProps`) come from `next typegen` (run by `npm run typecheck`).
+- Browser storage is only touched below `<AppProviders>` (`ClientOnly` → `RepositoryProvider`), never during server render; the server HTML is a static "Loading DizPitch…" (`hydration.test.tsx` asserts no storage access and clean hydration).
+- **Keep the client-only gate below the page segment, never in a layout.** Next's dev-only instant-navigation validation reports `Could not validate that a segment in your UI has instant navigation … dropped segment: src/app/page.tsx` when a layout swallows `children` on the server (this happened when `AppProviders` wrapped `{children}` in the root layout). Each page's client route component wraps its own content in `<AppProviders>` so `page.tsx` still renders during prerender. Don't "fix" this with `export const instant = false`.
+- `/match/[id]`: the server `page.tsx` reads `params` only inside `<Suspense>` and hands the promise to the client `MatchRoute`, which uses `use(params)` (required under Cache Components; the build reports the route as partially prerendered). Route prop types (`LayoutProps`, `PageProps`) come from `next typegen` (run by `npm run typecheck`).
+- `MatchRoute` keys the loader by match id, so opening another match remounts the provider (fresh undo history).
 - The scaffold deleted the default favicon/SVGs; the app icon is `src/app/icon.svg`.
 
 ## Board rendering notes
@@ -116,8 +259,21 @@ Planned for later phases (not yet created): `domain/{lineup,events,score,clock}.
 - Markers are `role="button"`, focusable, with arrow-key nudge (1 m, Shift 5 m, never snapped), Enter/Space select, Esc deselect.
 - Z-order: markings → drawings → markers → endpoint handles. Drawings sit under markers so players stay grabbable; each drawing has an invisible 2.4 m hit stroke (pointer-events only in Select). Arrows that start/end on a player are trimmed (`drawingPath.ts`) so arrowheads stay visible; lofted curves are trimmed along the Bézier.
 - `touch-action`: `auto` on the svg in Select (grass scrolls the page; markers/handles are `none`), `none` in drawing tools.
-- Board shortcuts (ignored while typing in form fields): V/P/L/S/M/F/E tools, Ctrl/⌘+Z undo, Ctrl/⌘+Shift+Z or Ctrl+Y redo, Delete/Backspace delete selected drawing, Esc cancel gesture → deselect. Global listener uses `useEffectEvent` (writing refs during render fails the React Compiler lint).
+- Board shortcuts (ignored while typing in form fields): V/P/L/S/M/F/E tools, Ctrl/⌘+Z undo, Ctrl/⌘+Shift+Z or Ctrl+Y redo, Delete/Backspace delete selected drawing, Esc cancel gesture → exit fullscreen, else deselect. Global listener uses `useEffectEvent` (writing refs during render fails the React Compiler lint).
 - Keyboard access to drawings is via the "Drawings" list in the side panel (selects; then edit/delete in the panel).
+- **Fullscreen pitch:** `BoardView`'s stage `<div>` (tools row + pitch; the *one* existing board, never a copy) is what goes fullscreen, via `components/ui/useFullscreen` (callback ref; modes `off | native | fallback`). `native` = `element.requestFullscreen()`, mirrored from `fullscreenchange`; `fallback` (API missing, e.g. iPhone Safari, or the request is refused) = the same stage as a `fixed inset-0 z-[100]` overlay with the page scroll locked. While active the stage shows a compact bar (icon-only tools, undo/redo, Clear, orientation, snap, **Exit fullscreen**), hides Export PNG, the side panels and the no-players hint, fills with `PITCH_THEME.surround`, and `TacticalBoard fill` makes the svg `h-full w-full`; the `xMidYMid meet` letterboxing that `clientToPitch` already replicates keeps pointer mapping exact. Don't conditionally render the board in two places (state/gestures would be lost) and don't wrap it in transforms. **Keys:** `Esc` cancels a gesture first, then exits (also handled in our listener because some browsers/webviews don't exit natively or don't deliver the key); `Delete`/`Backspace` deletes a selected arrow, and with nothing selected exits fullscreen (the Mac "delete" key). The hook returns `attach`, not `ref`: the React Compiler lint treats any object with a `ref` member as ref-tainted, and destructure `mode`/`active` in the component.
+- **Touch:** browsers ignore `touch-action` on SVG *child* elements (only the root `<svg>` counts), so a finger on a player would start a page pan and fire `pointercancel`. `TacticalBoard` therefore registers a **native, non-passive `touchstart`** listener (React's touch props are passive) that calls `preventDefault()` only when the touch begins on `[data-slot-id]`, `[data-handle]` or `[data-drawing-id]` in the Select tool; open grass still scrolls the page, and drawing tools set `touch-action: none` on the root. Verified in Chromium with real CDP touch events.
+- **Responsive rules:** header + scoreboard are `md:sticky` (scroll away on phones); scoreboard team row is full-width below `lg`; phones (`max-width: 639px`) open the board in portrait; `pointer-coarse:` variants enlarge buttons; marker text is 2.5/2.0/1.6 m (number/name/position) so labels stay readable at phone width.
+
+## Hidden routes and stale state (Cache Components)
+
+- With `cacheComponents`, Next keeps up to 3 previously visited routes **mounted but hidden** (`<Activity>`, `display: none`) with their React state. Anything that snapshots browser storage on mount (the library list, the loaded match) goes stale while hidden, and a stale workspace's autosave would overwrite edits made elsewhere (e.g. a library rename). Both route components are therefore wrapped in `components/ui/ReloadOnReveal`, which remounts its children when the route is shown again (it detects React re-running its layout effect after a hide, so data is read at *reveal* time, before paint). `AutosaveProvider` flushes in its effect cleanup, which runs on hide, so no work is lost. Don't remove the wrapper; don't snapshot storage in `useState` initialisers outside a `ReloadOnReveal` subtree.
+- Because hidden routes stay in the DOM, tests/automation that query the whole page can match hidden elements; scope queries or use visible-only filters.
+
+## Accessibility baseline
+
+- Verified with axe-core (WCAG 2.0/2.1 A + AA) on library, board, events (with form open), and setup, at 1440, 1024, 820 and 390 px: **0 violations**. Keep: primary/active green = `emerald-700` (white text ≥ 4.5:1), secondary text no dimmer than `zinc-400` on the dark surfaces, every icon-only button has an accessible name (`sr-only` label), and visible focus (`:focus-visible` outline; SVG markers show their selection ring on focus).
+- Don't use `text-zinc-500` for text; it fails AA on these backgrounds.
 
 ## Coding rules
 
@@ -137,9 +293,24 @@ npm run lint        # eslint
 npm run typecheck   # next typegen && tsc --noEmit
 npm test            # vitest run (single pass)
 npm run test:watch  # vitest watch mode
+
+# team presets (ISL data for /new; see docs/TEAM_PRESETS.md):
+npm run presets -- fetch --profiles            # preview: reads the official site, prints what would change
+npm run presets -- fetch --profiles --apply    # write public/presets/** and docs/presets/*-import-report.md
+npm run presets -- import --file squads.csv --season 2026-27 [--apply]   # manual CSV/JSON import
+npm run presets -- validate
+
+# computer-vision service (separate terminal; see cv-service/README.md):
+cd cv-service && uv sync && ./scripts/download_models.sh
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8001
+uv run pytest -m "not integration"; uv run pytest -m integration -s
+
+# genuine vision-provider tests (spend API credit; skipped otherwise):
+GEMINI_API_KEY=... LINEUP_FIXTURE_DIR="/path/to/ISL Starting Lineups" \
+  npx vitest run src/lineup-extraction/provider.integration.test.ts
 ```
 
-Component tests drive the real UI through `<MatchWorkspace initialMatch={...} initialView="setup" | "board" />` using `@testing-library/user-event`. Board tests use `components/board/boardTestUtils.ts` (`mockBoardLayout()` mocks `SVGSVGElement.prototype.getBoundingClientRect` since jsdom has no layout; `gesture`/`drag`/`marker`/`drawings` helpers fire `pointer*` events). `src/components/hydration.test.tsx` guards the server/client render split.
+Component tests drive the real UI through `<MatchWorkspace initialMatch={...} initialView="setup" | "board" />` using `@testing-library/user-event`. Dead-code check (not a project dependency): `npx knip --no-progress` should print nothing. Match UI tests (`components/match/MatchEvents.test.tsx`) fake only `Date`/`setInterval`/`clearInterval` (`vi.useFakeTimers({ toFake: [...] })`) — **never fake `setTimeout`**: testing-library's async wrapper hangs on it outside Jest; autosave tests therefore wait for the real 500 ms debounce with `vi.waitFor`. Persistence tests use `persistence/testHelpers.tsx` (`WithRepository`, `FlakyRepository`, `persistentMemoryRepository`) and `persistence/testFixtures.ts` (`richMatch()`: every event kind, drawings incl. freehand, saved layout, running clock). `/match/[id]` component tests mock `next/navigation`; start a live second half with a preset `clock` + `setSystemTime`. Board tests use `components/board/boardTestUtils.ts` (`mockBoardLayout()` mocks `SVGSVGElement.prototype.getBoundingClientRect` since jsdom has no layout; `gesture`/`drag`/`marker`/`drawings` helpers fire `pointer*` events). `src/components/hydration.test.tsx` guards the server/client render split.
 
 ## Phase workflow & model switching
 

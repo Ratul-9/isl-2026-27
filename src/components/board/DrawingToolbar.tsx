@@ -36,7 +36,16 @@ const SWATCH: Partial<Record<Tool, string>> = {
   freehand: DRAWING_STYLE.freehand.colour,
 };
 
-export function DrawingToolbar({ tool, onToolChange }: { tool: Tool; onToolChange: (tool: Tool) => void }) {
+export function DrawingToolbar({
+  tool,
+  onToolChange,
+  compact = false,
+}: {
+  tool: Tool;
+  onToolChange: (tool: Tool) => void;
+  /** Icon-only tools and no visible hint, for the fullscreen bar. */
+  compact?: boolean;
+}) {
   const match = useMatch();
   const actions = useMatchActions();
   const history = useBoardHistory();
@@ -57,14 +66,14 @@ export function DrawingToolbar({ tool, onToolChange }: { tool: Tool; onToolChang
               title={`${label} (${shortcut})`}
               onClick={() => onToolChange(id)}
               className={cn(
-                'relative flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors',
-                tool === id ? 'bg-emerald-600 text-white shadow-inner' : 'text-zinc-300 hover:bg-zinc-800 hover:text-white',
+                'relative flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors pointer-coarse:px-3 pointer-coarse:py-2.5',
+                tool === id ? 'bg-emerald-700 text-white shadow-inner' : 'text-zinc-300 hover:bg-zinc-800 hover:text-white',
               )}
             >
               <Icon size={15} aria-hidden />
-              <span className="hidden md:inline">{label}</span>
+              <span className={compact ? 'sr-only' : 'hidden md:inline'}>{label}</span>
               {SWATCH[id] ? (
-                <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: SWATCH[id] }} />
+                <span aria-hidden className="hidden h-2 w-2 rounded-full sm:inline-block" style={{ backgroundColor: SWATCH[id] }} />
               ) : null}
             </button>
           ))}
@@ -85,12 +94,16 @@ export function DrawingToolbar({ tool, onToolChange }: { tool: Tool; onToolChang
           disabled={count === 0 || confirmClear}
           title={count === 0 ? 'There are no annotations on the board' : 'Remove every drawing; players stay'}
         >
-          <Trash2 size={14} aria-hidden /> Clear annotations{count > 0 ? ` (${count})` : ''}
+          <Trash2 size={14} aria-hidden />
+          <span className={compact ? 'sr-only' : undefined}>Clear annotations</span>
+          {count > 0 ? ` (${count})` : ''}
         </Button>
       </div>
 
-      <p className="text-xs text-zinc-400" aria-live="polite">
-        <span className="font-semibold text-zinc-200">{active.label} tool</span> — {active.hint}
+      <p className={compact ? 'sr-only' : 'text-xs text-zinc-400'} aria-live="polite">
+        <span className="font-semibold text-zinc-200">{active.label} tool</span>
+        <span className={compact ? 'sr-only' : 'hidden sm:inline'}> — {active.hint}</span>
+        <span className="sr-only sm:hidden"> — {active.hint}</span>
       </p>
 
       {confirmClear ? (

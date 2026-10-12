@@ -81,7 +81,7 @@ export function DrawingPanel({ drawing, onDeleted }: { drawing: Drawing; onDelet
           <Trash2 size={14} aria-hidden /> Delete
         </Button>
       </div>
-      <p className="text-[11px] text-zinc-500">Delete/Backspace removes it; Esc deselects. Changes can be undone.</p>
+      <p className="text-[11px] text-zinc-400">Delete/Backspace removes it; Esc deselects. Changes can be undone.</p>
     </section>
   );
 }

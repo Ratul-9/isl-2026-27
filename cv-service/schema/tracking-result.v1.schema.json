@@ -1,0 +1,683 @@
+{
+  "$defs": {
+    "Calibration": {
+      "properties": {
+        "cameraMotion": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Cameramotion",
+          "type": "array"
+        },
+        "framesCalibrated": {
+          "title": "Framescalibrated",
+          "type": "integer"
+        },
+        "framesTotal": {
+          "title": "Framestotal",
+          "type": "integer"
+        },
+        "homography": {
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Homography",
+          "type": "array"
+        },
+        "maxErrorM": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maxerrorm"
+        },
+        "medianErrorM": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Medianerrorm"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "perFrame": {
+          "$ref": "#/$defs/CalibrationFrames"
+        },
+        "shots": {
+          "items": {
+            "$ref": "#/$defs/ShotInfo"
+          },
+          "title": "Shots",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "calibrated",
+            "partial",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "method",
+        "framesTotal",
+        "framesCalibrated",
+        "medianErrorM",
+        "maxErrorM",
+        "perFrame",
+        "homography",
+        "cameraMotion",
+        "shots",
+        "notes"
+      ],
+      "title": "Calibration",
+      "type": "object"
+    },
+    "CalibrationFrames": {
+      "properties": {
+        "errorM": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Errorm",
+          "type": "array"
+        },
+        "fromFrame": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Fromframe",
+          "type": "array"
+        },
+        "landmarks": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Landmarks",
+          "type": "array"
+        },
+        "shot": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shot",
+          "type": "array"
+        },
+        "source": {
+          "items": {
+            "enum": [
+              "keypoints",
+              "propagated",
+              "manual",
+              "none"
+            ],
+            "type": "string"
+          },
+          "title": "Source",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "fromFrame",
+        "errorM",
+        "landmarks",
+        "shot"
+      ],
+      "title": "CalibrationFrames",
+      "type": "object"
+    },
+    "CoordinateSystem": {
+      "properties": {
+        "max": {
+          "default": 100,
+          "title": "Max",
+          "type": "number"
+        },
+        "min": {
+          "default": 0,
+          "title": "Min",
+          "type": "number"
+        },
+        "templateMetres": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Templatemetres",
+          "type": "object"
+        },
+        "type": {
+          "const": "dizpitch_normalized",
+          "default": "dizpitch_normalized",
+          "title": "Type",
+          "type": "string"
+        },
+        "xAxis": {
+          "default": "pitch length; 0 = left goal line as seen from the broadcast camera, 100 = right goal line",
+          "title": "Xaxis",
+          "type": "string"
+        },
+        "yAxis": {
+          "default": "pitch width; 0 = far touchline (top of the DizPitch pitch), 100 = near touchline",
+          "title": "Yaxis",
+          "type": "string"
+        }
+      },
+      "title": "CoordinateSystem",
+      "type": "object"
+    },
+    "Frames": {
+      "properties": {
+        "sourceIndex": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Sourceindex",
+          "type": "array"
+        },
+        "tMs": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Tms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sourceIndex",
+        "tMs"
+      ],
+      "title": "Frames",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "properties": {
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "licence": {
+          "title": "Licence",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "detector",
+            "ballDetector",
+            "pitchKeypoints",
+            "tracker"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": [
+        "role",
+        "name",
+        "licence"
+      ],
+      "title": "ModelInfo",
+      "type": "object"
+    },
+    "Observations": {
+      "properties": {
+        "bbox": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Bbox",
+          "type": "array"
+        },
+        "confidence": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Confidence",
+          "type": "array"
+        },
+        "foot": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Foot",
+          "type": "array"
+        },
+        "frame": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Frame",
+          "type": "array"
+        },
+        "pitch": {
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Pitch",
+          "type": "array"
+        },
+        "source": {
+          "items": {
+            "enum": [
+              "detected",
+              "interpolated"
+            ],
+            "type": "string"
+          },
+          "title": "Source",
+          "type": "array"
+        }
+      },
+      "required": [
+        "frame",
+        "bbox",
+        "foot",
+        "pitch",
+        "confidence",
+        "source"
+      ],
+      "title": "Observations",
+      "type": "object"
+    },
+    "SegmentInfo": {
+      "properties": {
+        "endMs": {
+          "title": "Endms",
+          "type": "number"
+        },
+        "frameStride": {
+          "title": "Framestride",
+          "type": "integer"
+        },
+        "processedFrames": {
+          "title": "Processedframes",
+          "type": "integer"
+        },
+        "startMs": {
+          "title": "Startms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "startMs",
+        "endMs",
+        "frameStride",
+        "processedFrames"
+      ],
+      "title": "SegmentInfo",
+      "type": "object"
+    },
+    "ShotInfo": {
+      "properties": {
+        "endFrame": {
+          "title": "Endframe",
+          "type": "integer"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "startFrame": {
+          "title": "Startframe",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "startFrame",
+        "endFrame"
+      ],
+      "title": "ShotInfo",
+      "type": "object"
+    },
+    "SourceInfo": {
+      "properties": {
+        "codec": {
+          "title": "Codec",
+          "type": "string"
+        },
+        "durationS": {
+          "title": "Durations",
+          "type": "number"
+        },
+        "fileName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filename"
+        },
+        "fps": {
+          "title": "Fps",
+          "type": "number"
+        },
+        "frameCount": {
+          "title": "Framecount",
+          "type": "integer"
+        },
+        "height": {
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "fps",
+        "durationS",
+        "frameCount",
+        "codec"
+      ],
+      "title": "SourceInfo",
+      "type": "object"
+    },
+    "TeamClusterInfo": {
+      "properties": {
+        "colorHex": {
+          "title": "Colorhex",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "A",
+            "B"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "trackCount": {
+          "title": "Trackcount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "colorHex",
+        "trackCount"
+      ],
+      "title": "TeamClusterInfo",
+      "type": "object"
+    },
+    "Teams": {
+      "properties": {
+        "clusters": {
+          "items": {
+            "$ref": "#/$defs/TeamClusterInfo"
+          },
+          "title": "Clusters",
+          "type": "array"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "clusters"
+      ],
+      "title": "Teams",
+      "type": "object"
+    },
+    "Track": {
+      "properties": {
+        "classVotes": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Classvotes",
+          "type": "object"
+        },
+        "mergedFrom": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Mergedfrom",
+          "type": "array"
+        },
+        "objectType": {
+          "enum": [
+            "player",
+            "goalkeeper",
+            "referee",
+            "ball"
+          ],
+          "title": "Objecttype",
+          "type": "string"
+        },
+        "observations": {
+          "$ref": "#/$defs/Observations"
+        },
+        "team": {
+          "anyOf": [
+            {
+              "enum": [
+                "A",
+                "B",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Team"
+        },
+        "teamConfidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Teamconfidence"
+        },
+        "trackId": {
+          "title": "Trackid",
+          "type": "string"
+        },
+        "trackerId": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Trackerid"
+        }
+      },
+      "required": [
+        "trackId",
+        "trackerId",
+        "objectType",
+        "team",
+        "teamConfidence",
+        "classVotes",
+        "observations"
+      ],
+      "title": "Track",
+      "type": "object"
+    }
+  },
+  "$id": "https://dizpitch.local/schema/tracking-result.v1.schema.json",
+  "properties": {
+    "calibration": {
+      "$ref": "#/$defs/Calibration"
+    },
+    "coordinateSystem": {
+      "$ref": "#/$defs/CoordinateSystem"
+    },
+    "device": {
+      "title": "Device",
+      "type": "string"
+    },
+    "frames": {
+      "$ref": "#/$defs/Frames"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/ModelInfo"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "default": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "segment": {
+      "$ref": "#/$defs/SegmentInfo"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceInfo"
+    },
+    "teams": {
+      "$ref": "#/$defs/Teams"
+    },
+    "timingsMs": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Timingsms",
+      "type": "object"
+    },
+    "tracks": {
+      "items": {
+        "$ref": "#/$defs/Track"
+      },
+      "title": "Tracks",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source",
+    "segment",
+    "models",
+    "device",
+    "frames",
+    "calibration",
+    "teams",
+    "tracks",
+    "warnings",
+    "timingsMs"
+  ],
+  "title": "TrackingResult",
+  "type": "object"
+}

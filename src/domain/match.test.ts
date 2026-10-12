@@ -73,3 +73,11 @@ describe('getSetupIssues', () => {
     expect(getSetupIssues(m).find((i) => i.id === 'duration')?.severity).toBe('error');
   });
 });
+
+describe('createMatch: clock and events', () => {
+  it('starts with no events and a stopped pre-match clock', () => {
+    const m = createMatch();
+    expect(m.events).toEqual([]);
+    expect(m.clock).toEqual({ period: 'notStarted', elapsedMs: 0, runningSinceEpochMs: null, endedPeriod: null });
+  });
+});

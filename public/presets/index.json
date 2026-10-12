@@ -1,0 +1,17 @@
+{
+  "format": "dizpitch.presetindex",
+  "schemaVersion": 1,
+  "seasons": [
+    {
+      "league": {
+        "id": "isl",
+        "name": "Indian Super League"
+      },
+      "season": "2026-27",
+      "file": "isl/2026-27.json",
+      "teams": 13,
+      "players": 366,
+      "generatedAt": "2026-10-12T06:00:17.855Z"
+    }
+  ]
+}

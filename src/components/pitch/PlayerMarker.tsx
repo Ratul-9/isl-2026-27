@@ -1,8 +1,11 @@
 'use client';
 
 import type { KeyboardEvent } from 'react';
+import { isNumberUnknown } from '@/domain/presets/snapshot';
+import type { ResolvedKit } from '@/domain/presets/kits';
 import { positionName } from '@/domain/positions';
 import type { Id, Player, PositionCode, TeamSide, Point } from '@/domain/types';
+import { JerseyShape } from './Jersey';
 import { compactName } from './labels';
 import { MARKER_RADIUS, PITCH_THEME as T } from './pitchTheme';
 
@@ -22,6 +25,8 @@ interface PlayerMarkerProps {
   dragging: boolean;
   /** Draggable in the select tool; in drawing tools it is an arrow anchor. */
   draggable: boolean;
+  /** When set (jersey display, team with a kit theme) the player is drawn as this kit's jersey instead of a circle. */
+  kit?: ResolvedKit | null;
   onKeyDown: (e: KeyboardEvent<SVGGElement>) => void;
 }
 
@@ -42,11 +47,15 @@ export function PlayerMarker({
   selected,
   dragging,
   draggable,
+  kit = null,
   onKeyDown,
 }: PlayerMarkerProps) {
   const colours = T[side];
+  // A temporary number (the source had none) is never printed on a jersey and is not announced as a shirt number.
+  const printedNumber = player && !isNumberUnknown(player) ? player.shirtNumber : null;
+  const numberText = kit ? (printedNumber !== null ? `#${printedNumber} ` : '') : `#${player?.shirtNumber} `;
   const label = player
-    ? `${teamName}: #${player.shirtNumber} ${player.name}, ${positionName(position)}`
+    ? `${teamName}: ${numberText}${player.name}, ${positionName(position)}`
     : `${teamName}: empty ${positionName(position)} position`;
 
   return (
@@ -74,21 +83,31 @@ export function PlayerMarker({
       />
       {player ? (
         <>
-          <circle r={MARKER_RADIUS} fill={colours.fill} stroke={colours.stroke} strokeWidth={0.3} />
+          {kit ? (
+            <>
+              {/* Same hit area as the circle: jerseys are no harder to select or drag. */}
+              <circle r={MARKER_RADIUS} fill="transparent" />
+              <JerseyShape kit={kit} number={printedNumber} />
+            </>
+          ) : (
+            <>
+              <circle r={MARKER_RADIUS} fill={colours.fill} stroke={colours.stroke} strokeWidth={0.3} />
+              <text
+                y={0.9}
+                textAnchor="middle"
+                fontSize={2.5}
+                fontWeight={700}
+                fill={colours.text}
+                style={{ pointerEvents: 'none' }}
+              >
+                {player.shirtNumber}
+              </text>
+            </>
+          )}
           <text
-            y={0.8}
+            y={MARKER_RADIUS + 2.3}
             textAnchor="middle"
-            fontSize={2.2}
-            fontWeight={700}
-            fill={colours.text}
-            style={{ pointerEvents: 'none' }}
-          >
-            {player.shirtNumber}
-          </text>
-          <text
-            y={MARKER_RADIUS + 2}
-            textAnchor="middle"
-            fontSize={1.7}
+            fontSize={2}
             fontWeight={600}
             fill={T.labelText}
             style={{ ...LABEL_STYLE, pointerEvents: 'none' }}
@@ -96,9 +115,9 @@ export function PlayerMarker({
             {compactName(player.name)}
           </text>
           <text
-            y={-MARKER_RADIUS - 0.8}
+            y={-MARKER_RADIUS - 0.9}
             textAnchor="middle"
-            fontSize={1.35}
+            fontSize={1.6}
             fontWeight={600}
             fill={T.labelText}
             style={{ ...LABEL_STYLE, pointerEvents: 'none' }}
@@ -110,16 +129,16 @@ export function PlayerMarker({
         <>
           <circle
             r={MARKER_RADIUS}
-            fill={colours.fill}
+            fill={kit ? kit.theme.primary : colours.fill}
             fillOpacity={0.18}
-            stroke={colours.fill}
+            stroke={kit ? kit.theme.primary : colours.fill}
             strokeWidth={0.3}
             strokeDasharray="0.8 0.6"
           />
           <text
-            y={0.5}
+            y={0.6}
             textAnchor="middle"
-            fontSize={1.35}
+            fontSize={1.6}
             fontWeight={600}
             fill={T.labelText}
             style={{ ...LABEL_STYLE, pointerEvents: 'none' }}

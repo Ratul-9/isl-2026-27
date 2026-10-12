@@ -7,7 +7,7 @@ Companion to `CLAUDE.md` (rules, invariants, stack) and `docs/IMPLEMENTATION_STA
 | # | Decision | Rationale |
 |---|---|---|
 | A1 | Next.js App Router + TypeScript strict, npm | Empty repo → mandated default. npm is the only package manager installed. |
-| A2 | Target routes: `/` (match library), `/match/[id]` (workspace). **Phase 1 deviation:** the workspace is mounted at `/` for the single in-memory match because the library does not exist until Phase 6; Phase 6 moves it to `/match/[id]`. | Avoids shipping a library/route that cannot function yet. No static export requirement, so a dynamic segment is fine. |
+| A2 | Routes: `/` (match library), `/match/[id]` (workspace). *Realised in Phase 6* (Phase 1–5 mounted the workspace at `/`). | Avoids shipping a library/route that cannot function yet. No static export requirement, so a dynamic segment is fine. |
 | A3 | Match UI is client-only: `<MatchProvider>` renders a loading fallback on the server and the real tree on the client (`useSyncExternalStore` gate); storage is read inside that subtree | Local-first; avoids SSR/hydration mismatch, and keeps random IDs/time out of server prerender under Cache Components. Verified by `hydration.test.tsx`. |
 | A4 | Domain logic in pure TS (`src/domain`), no React/DOM/Date | Testable; satisfies "predictable, testable transitions". |
 | A5 | One reducer per open match; actions are plain objects | Predictable updates, easy undo history and tests. |
@@ -16,7 +16,7 @@ Companion to `CLAUDE.md` (rules, invariants, stack) and `docs/IMPLEMENTATION_STA
 | A8 | Formation/pattern templates team-relative; converted for away with a 180° rotation (x→1−x, y→1−y) on apply. *Phase 2 correction: originally "mirrored x→1−x", which flips the away team's left/right.* | One definition serves both sides. |
 | A9 | Pitch coordinates are owned by **lineup slots**, not players | Substitution = swap `playerId` in a slot; position and shape are preserved naturally. |
 | A10 | Lineup, score, and displayed event times are derived, never stored | Prevents stale state after historical edits. |
-| A11 | Persistence: `localStorage`, one key per match + one index key, behind a `MatchRepository` interface | Matches are small; interface allows an IndexedDB swap without touching UI. |
+| A11 | Persistence: `localStorage`, one key per match behind a `MatchRepository` interface. *Phase 6 refinement: no separate index key* — the library enumerates `dizpitch:match:*` keys and validates each, so there is no index to fall out of sync; at library scale (tens of matches) this is cheap. | Matches are small; interface allows an IndexedDB swap without touching UI. |
 | A12 | `zod` schemas as the single validation source for import + storage load | Invariant 9; gives readable error paths. |
 | A13 | Pointer Events for drag/draw; no DnD library | Needs pointer capture, touch handling and coordinate normalisation anyway; a DnD lib adds little. |
 | A14 | PNG export by serialising the pitch SVG (inline styles, embedded font fallback) to canvas | No heavy dependency; the board is already SVG. |
@@ -34,7 +34,39 @@ Companion to `CLAUDE.md` (rules, invariants, stack) and `docs/IMPLEMENTATION_STA
 | A27 | One `<svg>`-level pointer router with pointer capture; tool mode gates behaviour; drawing tools find players with a pure hit test (`findPlayerAt`) instead of DOM targets | Unambiguous player-drag vs arrow-draw on mouse, pen and touch; testable in jsdom. |
 | A28 | Lofted pass = yellow quadratic Bézier bulging left of travel (18% of length), "LD" badge at the apex; shot = red; movement = white dashed; freehand = light blue polyline, no arrowhead | Lofted is distinguishable even without the label; LD sits on the arrow as required. |
 | A29 | Editing a pattern-generated drawing drops its `source`, so re-applying a pattern won't delete user-edited arrows | Pattern output is a starting point; user edits are owned by the user. |
+| A30 | Periods: `notStarted, firstHalf, halfTime, secondHalf, extraTimeFirstHalf, extraTimeSecondHalf, fullTime`; ET halves fixed at 15 min; half = `durationMinutes/2` | Spec's "Extra Time" split in two so 105+X' notation and the ET half-time marker work. |
+| A31 | Clock = `{period, elapsedMs (within period), runningSinceEpochMs, endedPeriod}`; transitions are a fixed state machine; `correctClock` can set any period/elapsed without markers | Timestamp-derived elapsed (invariant 8); mis-clicked period changes are recoverable. |
+| A32 | Events store `period` + continuous `matchTimeMs`; minute notation derived; ordering `(periodIndex, matchTimeMs, array index)` | Stoppage times sort correctly; insertion order is a stable tie-break. |
+| A33 | Period markers are a single `periodMarker` event type with a `marker` enum (kickoff, halfTime, secondHalfKickoff, endOfNormalTime, extraTimeKickoff, extraTimeHalfTime, extraTimeSecondHalfKickoff, fullTime), auto-recorded by `clock/advance` | Replaces the sketch's four separate types; covers extra time; one union member to handle. |
+| A34 | One `analyzeEvents` pass yields per-event errors/warnings, derived lineups and the score; errors exclude an event from derivation, warnings don't | Score, lineup and timeline can never disagree; historical corrections flag dependants instead of corrupting state. |
+| A35 | Goal: `teamId` = credited team; own goal requires the responsible player from the other squad and no assist; scorer/assist optional otherwise; scorer-not-on-pitch is a warning (goal still counts) | Matches the spec's own-goal rule; data-entry order mistakes don't silently change the score. |
+| A36 | Second yellow = dismissal; subbed-off players can't return; dismissed substitutes can't come on; no substitution count limit | Standard Laws of the Game; limits vary by competition, so none is enforced. |
+| A37 | Players referenced by events can't be removed; roster role changes after kick-off are allowed and re-derive (possibly flagging events) | Prevents dangling references; still lets users fix a wrong starting XI. |
+| A38 | `MatchStatus` follows the clock on transitions (live/HT → inProgress, FT → completed), otherwise manual | Resolves the Phase 1 status/clock overlap without removing manual postponed/abandoned. |
+| A39 | Workspace views: **Board / Events / Setup**; the **scoreboard + clock controls are rendered once in the shell** (sticky, under the header) so they persist across views; header status badge stays | Satisfies "clock continues working when the user changes sections" structurally rather than by re-syncing. |
+| A40 | `useNow` = shared 250 ms ticker store used only to repaint; elapsed time always from `clockReadout(clock, now)` | Honors invariant 8 while giving a live display; late ticks are harmless. |
+| A41 | Event forms: pure model (`eventFormModel.ts`) + live `checkEventChange`; errors block save, warnings/`newlyInvalid` are shown and allowed ("Save and flag N"); pickers list only players valid at the form's moment excluding the edited event | Prevents most invalid input up front while still permitting historical corrections that flag dependants (A34). |
+| A42 | New events default to the live minute; before kick-off → 1'; at half time → start of the second half; after full time → end of the last half. Unchanged minute keeps exact ms (ordering within a minute follows real time) | Matches how matches are actually recorded; stoppage entered as minute+added or a minute beyond the half. |
+| A43 | Board renders the **derived** lineup (substitutes occupy the slot of the player they replaced); arrows attach to current occupants; patterns use current occupants while `Team.slots` keeps the starting XI | Invariant 6 end-to-end: events never mutate slots. |
+| A44 | Period changes from the scoreboard confirm before ending a half/the match; clock correction accepts a period + match-scale time (mm:ss) | Prevents mis-clicks on irreversible-feeling actions; recoverable via correction. |
+| A45 | Schema versioning lives on the **document envelope** (`{format, schemaVersion, savedAt, match}`), not on `Match`; storage and JSON files use the same envelope | Keeps the domain type free of storage concerns; one parser serves both. (Supersedes "Phase 6 adds `schemaVersion` to Match".) |
+| A46 | Import pipeline: size cap 5 MB → JSON → format marker → version → migrations → zod → cross-field integrity (unique ids, `validateSquadIntegrity`) → non-lossy repairs as warnings (missing saved arrangement → 4-3-3, running clock outside a half → paused) → warn about events inconsistent with squads. Errors are path-prefixed, capped at 8 | Strict on structure, tolerant on things that lose nothing; users see exactly what is wrong. |
+| A47 | Importing never overwrites: an existing id yields a regenerated-id copy named "… (imported)"; Duplicate regenerates every id, remaps every reference and pauses a running clock | A library must never silently lose a match. |
+| A48 | Autosave: debounce 500 ms, flush on unmount/`pagehide`/hidden, derived status (Saved/Saving/Not saved + Retry/Session only); failure keeps the match in memory. Storage blocked → in-memory repository + visible notice | Honest about durability; no data loss on quota errors. |
+| A49 | PNG export: DOM clone of the board `<svg>` → strip handles/drafts/rings/hit areas/titles → standalone SVG with explicit size and concrete fonts → `Image` → canvas → `toBlob`. Long edge 2000 px; exports the orientation currently shown | Reuses the on-screen renderer so export always matches the screen; no dependency. |
+| A50 | Library actions (create/duplicate/rename/export/import/delete) operate on stored documents via the repository, not on an open match; the workspace is only opened through `/match/[id]` | One source of truth per match at a time; avoids editor/library races. Cross-tab edits are not coordinated (last write wins). |
+| A51 | Hidden-route staleness is handled by `ReloadOnReveal` (remount on reveal), not by disabling Cache Components | Keeps the framework default (A16) and fixes the real data-integrity risk found in browser QA. |
+| A52 | Touch drag uses a native non-passive `touchstart` guard on draggable targets (Select tool only); open grass keeps page scrolling | `touch-action` is ignored on SVG children in browsers; `touch-action: none` on the whole root would make the pitch a scroll trap on tablets. |
+| A53 | Responsive strategy: sticky chrome only from `md`; board defaults to portrait on phones; `pointer-coarse:` enlarges targets; secondary text ≥ `zinc-400`, primary green `emerald-700` | WCAG AA contrast and reachable touch targets without a separate mobile UI. |
+| A54 | Real-browser QA is ad-hoc (Playwright + axe-core installed in the session scratchpad, not a project dependency); results recorded in IMPLEMENTATION_STATUS | Keeps the project toolchain small (A15); the scripts are not retained, so re-running means rewriting them. |
+| A55 | Video tracking runs in a separate local Python service (`cv-service/`, FastAPI + uv) with dedicated detectors (Roboflow YOLOv8 via Ultralytics), ByteTrack (`trackers`) and deterministic homography geometry; the web app reaches it only via `/api/cv/[...path]`. No generative model is used for detection, tracking or localisation | Spec requirement; keeps PyTorch out of the npm tree. SoccerNet sn-gamestate rejected (Python 3.9/CUDA-era stack, GPL-3.0). **Ultralytics/weights are AGPL-3.0: licence decision left to the owner** |
+| A56 | Tracked replays store `TrackingData` (image boxes + pitch points + provenance + edits) on `TacticalReplay` (schema v3), never the video; automatic calibration is presented as unverified, with manual landmark calibration as the fallback | Honest positions (uncalibrated → no pitch point), replay without reprocessing, and a correction path when the keypoint model is wrong (observed on the test clip) |
 | A18 | Reducer actions carry pre-generated IDs; hook `useMatchActions` validates then dispatches; reducer ignores invalid ops by returning the same state | Pure/deterministic reducer, StrictMode-safe, errors surfaced to forms. |
+| A57 | Team presets are static, validated JSON under `public/presets/<league>/<season>.json` (+ `index.json`), produced by a maintenance CLI and loaded in the browser; creating a match **snapshots** the chosen teams (no live link) | No backend (out of scope), refresh without a rebuild, and the data-integrity rule that presets and historical matches never affect each other |
+| A58 | A club's full squad (~25–36) does not fit the ≤ 22 matchday squad, so presets add an optional per-team **squad pool** (`Team.pool`) instead of raising the squad cap; `Team.players` and invariant 12 are unchanged | Every event/board/lineup code path keeps working untouched; the user still chooses the XI and bench; no auto-selection |
+| A59 | Importer reads only the public club/squad/profile HTML (robots-aware, 1 req/s), never the site's `/api`; images are linked, never stored (host allow-list + fallbacks) | Respect access rules and unclear image rights; no data API is documented; a manual CSV/JSON path exists for when scraping is not possible |
+| A60 | `tsx` added as a dev dependency to run `scripts/presets.ts` against the same TS modules (schema, parsers) the app and tests use | Avoids duplicating the zod schema/parsers in a second language or a hand-rolled loader; dev-only |
+| A61 | Persisted schema v4 adds only optional fields (`Team.pool`, `Team.preset`, `Player.origin`); migration `3 → 4` is the identity | Old matches open unchanged; the bump stops an older build from silently stripping preset data on save |
 
 ## 2. Domain model sketch
 
@@ -43,7 +75,7 @@ Types are defined in `src/domain/types.ts` in Phase 1 (setup types) and extended
 ```ts
 type Id = string;                       // generated, opaque
 type PositionCode = 'GK'|'LB'|'RB'|'CB'|'LCB'|'RCB'|'LWB'|'RWB'|'CDM'|'CM'|'LCM'|'RCM'|'CAM'|'LM'|'RM'|'LW'|'RW'|'CF'|'ST';
-type Period = 'notStarted'|'firstHalf'|'halfTime'|'secondHalf'|'extraTime'|'fullTime';
+type Period = 'notStarted'|'firstHalf'|'halfTime'|'secondHalf'|'extraTimeFirstHalf'|'extraTimeSecondHalf'|'fullTime'; // A30
 interface Point { x: number; y: number }  // normalised 0..1, canonical frame
 
 interface Player { id: Id; name: string; shirtNumber: number; preferredPosition: PositionCode; notes?: string }
@@ -62,8 +94,8 @@ interface SavedLayout { id: Id; name: string; baseFormation: FormationId; slots:
 // Phase 3 added Drawing kinds lofted/shot/freehand, points, note; Phase 4 events + clock; Phase 6 schemaVersion.
 interface Officials { referee: string; assistant1: string; assistant2: string; fourthOfficial: string }
 
-type MatchEvent =                        // all carry: id, period, matchTimeMs, createdSeq
-  | { type: 'kickoff' | 'halfTime' | 'secondHalfKickoff' | 'fullTime' }
+type MatchEvent =                        // all carry: id, period, matchTimeMs (array order = tie-break)
+  | { type: 'periodMarker'; marker: PeriodMarker }   // Phase 4: replaces separate kickoff/halfTime/… types (A33)
   | { type: 'goal'; teamId: Id; scorerId?: Id; assistId?: Id; goalType: 'normal'|'penalty'|'freeKick'|'header'|'ownGoal'; notes?: string }
   | { type: 'substitution'; teamId: Id; outPlayerId: Id; inPlayerId: Id; reason?: string }
   | { type: 'yellowCard' | 'redCard'; teamId: Id; playerId: Id; notes?: string }
@@ -71,7 +103,7 @@ type MatchEvent =                        // all carry: id, period, matchTimeMs, 
 
 interface Drawing { id: Id; kind: 'pass'|'shot'|'lofted'|'movement'|'freehand'; from: Point; to: Point; points?: Point[]; fromPlayerId?: Id; toPlayerId?: Id; note?: string;
   source?: { patternId: string; teamId: Id } }   // all fields implemented (Phase 3)
-interface ClockState { period: Period; elapsedMs: number; runningSinceEpochMs: number | null }
+interface ClockState { period: Period; elapsedMs: number; runningSinceEpochMs: number | null; endedPeriod: PlayingPeriod | null }
 ```
 
 **Goal credit rule:** for `goalType === 'ownGoal'`, `teamId` is the team *credited* (the opponent); `scorerId` is the responsible player from the other squad. Score = count of goal events per credited `teamId`. (Phase 4 must document and test this convention; the UI presents "own goal by X (Team)".)
@@ -144,7 +176,7 @@ Dependencies: 0 → 1 → 2 → 3; 1 → 4 (domain needs team/player types); 2+4
 
 **Acceptance:** all drawing types render and edit correctly; undo/redo restores exact state; drawing never moves/deletes players; colours and LD readable.
 
-### Phase 4 — Match domain logic and timekeeping *(Opus)*
+### Phase 4 — Match domain logic and timekeeping *(Opus)* — DONE
 **Tasks**
 - Finalise event types; `clock.ts` state machine (start, pause, resume, correct, period transitions incl. extra time) using timestamps; formatters for `mm:ss` and `45+2'`.
 - `score.ts` (own goals credited to opponent), `lineup.ts` (reconstruction + validation), `events.ts` (add/edit/delete, ordering, tie-break, historical-edit re-derivation).
@@ -153,7 +185,7 @@ Dependencies: 0 → 1 → 2 → 3; 1 → 4 (domain needs team/player types); 2+4
 
 **Acceptance:** score always equals valid goal events; edited/deleted old events yield consistent lineup/bench; clock supports start/pause/resume/correction; business rules covered by tests.
 
-### Phase 5 — Scoreboard and match event interface *(Sonnet)*
+### Phase 5 — Scoreboard and match event interface *(Sonnet)* — DONE
 **Tasks**
 - Scoreboard (teams, score, period, clock) + clock controls; clock keeps running across section changes.
 - Goal form (scorer, assist, type, own goal), substitution form, card entry, note entry, with validation messages.
@@ -162,7 +194,7 @@ Dependencies: 0 → 1 → 2 → 3; 1 → 4 (domain needs team/player types); 2+4
 
 **Acceptance:** goals update scoreboard + timeline; substitutions update pitch and bench; edits/deletes propagate everywhere; clock unaffected by navigation.
 
-### Phase 6 — Persistence and exports *(Sonnet)*
+### Phase 6 — Persistence and exports *(Sonnet)* — DONE
 **Tasks**
 - `MatchRepository` (localStorage), autosave with save-status indicator, storage-failure handling (quota, disabled).
 - Match library: create, open, rename, duplicate (new IDs), delete (confirm).
@@ -172,7 +204,7 @@ Dependencies: 0 → 1 → 2 → 3; 1 → 4 (domain needs team/player types); 2+4
 
 **Acceptance:** matches survive refresh; drawings and events restore; JSON round-trip preserves full match; PNG contains expected content.
 
-### Phase 7 — Integration, responsive design and QA *(Sonnet)*
+### Phase 7 — Integration, responsive design and QA *(Sonnet)* — DONE
 **Tasks**
 - Walk the §8 acceptance checklist end to end; fix defects.
 - Resolve lint/type/test failures; remove dead code and unused dependencies.

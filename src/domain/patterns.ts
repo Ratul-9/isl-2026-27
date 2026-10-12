@@ -27,7 +27,7 @@ export type PatternId =
   | 'set-piece';
 
 /** A slot in the team frame, as patterns see it. */
-export interface PatternSlot {
+interface PatternSlot {
   id: Id;
   position: LineupSlot['position'];
   x: number;
@@ -36,14 +36,14 @@ export interface PatternSlot {
   playerId: Id | null;
 }
 
-export interface PatternArrow {
+interface PatternArrow {
   kind: DrawingKind;
   fromSlotId: Id;
   /** Target is either another slot (its pattern position) or a team-frame point. */
   to: { slotId: Id } | { point: Point };
 }
 
-export interface PatternResult {
+interface PatternResult {
   /** New team-frame position per slot id; every slot is included. */
   positions: Map<Id, Point>;
   arrows: PatternArrow[];

@@ -82,7 +82,7 @@ export function PatternPanel() {
           <Sparkles size={14} aria-hidden /> Apply to {name}
         </Button>
       )}
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-zinc-400">
         Re-applying replaces this team&apos;s previous pattern arrows. “Reset to formation” restores the shape.
       </p>
 

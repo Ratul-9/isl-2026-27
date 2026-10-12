@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 const CONTROL =
-  'w-full rounded-md border bg-zinc-900 px-3 text-sm text-zinc-100 placeholder:text-zinc-500 ' +
+  'w-full rounded-md border bg-zinc-900 px-3 text-sm text-zinc-100 placeholder:text-zinc-400 ' +
   'transition-colors focus-visible:border-emerald-500 disabled:opacity-50';
 
 function controlClass(error?: string | null) {
@@ -31,7 +31,7 @@ function FieldShell({ id, label, error, hint, className, children }: FieldShellP
           {error}
         </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className="text-xs text-zinc-500">
+        <p id={`${id}-hint`} className="text-xs text-zinc-400">
           {hint}
         </p>
       ) : null}

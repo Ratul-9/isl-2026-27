@@ -3,7 +3,7 @@
 import { getTeam, teamDisplayName } from '@/domain/match';
 import { positionName } from '@/domain/positions';
 import type { Id, PositionCode, TeamSide } from '@/domain/types';
-import { useMatch, useMatchActions } from '@/store/MatchContext';
+import { useMatch, useMatchActions, useMatchAnalysis } from '@/store/MatchContext';
 import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/fields';
 import { PositionOptions } from '@/components/setup/PlayerForm';
@@ -18,8 +18,10 @@ export function SelectionPanel({
 }) {
   const match = useMatch();
   const actions = useMatchActions();
+  const analysis = useMatchAnalysis();
   const team = selected ? getTeam(match, selected.side) : null;
-  const slot = team?.slots.find((s) => s.id === selected?.slotId);
+  // Derived lineup: same slot geometry, current occupant.
+  const slot = selected ? analysis.lineups[selected.side].slots.find((s) => s.id === selected.slotId) : undefined;
 
   if (!selected || !team || !slot) {
     return (
@@ -39,7 +41,7 @@ export function SelectionPanel({
     <section aria-label="Selected player" className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wide text-zinc-500">{teamDisplayName(team, selected.side)}</p>
+          <p className="text-[11px] uppercase tracking-wide text-zinc-400">{teamDisplayName(team, selected.side)}</p>
           <h3 className="truncate text-sm font-semibold">
             {player ? `#${player.shirtNumber} ${player.name}` : `Empty ${slot.position} position`}
           </h3>

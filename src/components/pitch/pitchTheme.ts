@@ -21,4 +21,4 @@ export const PITCH_THEME = {
 } as const;
 
 /** Marker radius in metres; arrows are trimmed by this so heads stay visible. */
-export const MARKER_RADIUS = 2.4;
+export const MARKER_RADIUS = 2.6;

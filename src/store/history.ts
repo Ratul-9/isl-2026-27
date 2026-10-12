@@ -20,7 +20,7 @@ interface SlotGeometry {
   y: number;
 }
 
-export interface BoardSnapshot {
+interface BoardSnapshot {
   slots: { home: Record<Id, SlotGeometry>; away: Record<Id, SlotGeometry> };
   formations: { home: FormationRef; away: FormationRef };
   drawings: Drawing[];
@@ -41,7 +41,7 @@ function geometry(match: Match, side: 'home' | 'away'): Record<Id, SlotGeometry>
   );
 }
 
-export function takeSnapshot(match: Match): BoardSnapshot {
+function takeSnapshot(match: Match): BoardSnapshot {
   return {
     slots: { home: geometry(match, 'home'), away: geometry(match, 'away') },
     formations: { home: match.home.formation, away: match.away.formation },
@@ -51,7 +51,7 @@ export function takeSnapshot(match: Match): BoardSnapshot {
 }
 
 /** Restores board state onto the current match, keeping current slot occupants and roster. */
-export function restoreSnapshot(match: Match, snap: BoardSnapshot): Match {
+function restoreSnapshot(match: Match, snap: BoardSnapshot): Match {
   const side = (s: 'home' | 'away') => ({
     ...match[s],
     formation: snap.formations[s],

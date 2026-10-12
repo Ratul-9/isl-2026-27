@@ -42,3 +42,16 @@ next-env.d.ts
 
 # claude code local settings
 .claude/settings.local.json
+
+# personal task list
+TODO.md
+
+# computer-vision service: model weights, local outputs, virtualenv
+
+cv-service/models/
+cv-service/.venv/
+cv-output/
+*.pt
+
+# Raw pages cached by the preset importer (not redistributed)
+/.cache/

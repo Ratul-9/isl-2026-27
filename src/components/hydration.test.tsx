@@ -36,3 +36,30 @@ describe('MatchWorkspace hydration', () => {
     container.remove();
   });
 });
+
+describe('AppProviders hydration', () => {
+  it('renders only a static message on the server and never touches browser storage', async () => {
+    const { AppProviders } = await import('./AppProviders');
+    const storageRead = vi.spyOn(Storage.prototype, 'getItem');
+    const storageWrite = vi.spyOn(Storage.prototype, 'setItem');
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+
+    const child = <p>library goes here</p>;
+    const html = renderToString(<AppProviders>{child}</AppProviders>);
+    expect(html).toContain('Loading DizPitch');
+    expect(html).not.toContain('library goes here');
+    expect(storageRead).not.toHaveBeenCalled();
+    expect(storageWrite).not.toHaveBeenCalled();
+
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    await act(async () => {
+      hydrateRoot(container, <AppProviders>{child}</AppProviders>);
+    });
+    expect(container.textContent).toContain('library goes here');
+    expect(errors).not.toHaveBeenCalled();
+    container.remove();
+  });
+});
