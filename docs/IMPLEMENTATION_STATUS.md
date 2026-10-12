@@ -13,6 +13,19 @@ Authoritative handoff document. If code and this file disagree, trust the code a
 | Version control | Last commit `ce96767` (Phase 3). **Phases 4–7 and all post-Phase-7 features (incl. `cv-service/`) are uncommitted**; Claude does not commit unless asked |
 | Post-Phase 7 features | **Team presets (ISL 2026-27)** (`/new`, `npm run presets`, schema v4): implemented and verified in a real browser against the real league site and image CDN — see "Team presets" below. **Computer-vision tracking** (`Replays → Track a video`, `cv-service/`, schema v3): implemented; the real models were run on the real `test_clip.mp4` through the real UI in WebKit — see "Computer-vision tracking" below. **Licence decision open (AGPL-3.0).** **Tactical replays from video clips** (`Replays` view, schema v2): implemented; verified in a real browser against a *stand-in* for Gemini, **never against the real Gemini API** — see "Tactical replays" below. **Image-to-match import** (`/import`): implemented and verified except against a real vision provider — see the section below. **Fullscreen pitch**: implemented and verified in real Chromium (native + overlay fallback) — see "Fullscreen pitch" below |
 
+## Tactical Bench (added after Phase 7)
+
+The Tactical patterns section left the sidebar. A **Tactical Bench** button sits at the top-right of the pitch display area (above the pitch). Normal layout: anchored dropdown. Fullscreen: in-app modal inside the fullscreen element (no new window, fullscreen is not exited). Both reuse the existing `PatternPanel` and pattern logic unchanged; the panel's own Apply button commits (choosing does not), and Esc / outside click / backdrop / Cancel close without applying. Files: `components/board/TacticalBench.tsx` (new), `PatternPanel.tsx` (`embedded`, `onApplied`, error display), `BoardView.tsx`, tests `TacticalBench.test.tsx` (new) and `BoardView.test.tsx`.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint`, `npx knip --no-progress` | Pass, nothing printed |
+| `npm test` | 56 files; 782 passed, 2 skipped (incl. 10 new Tactical Bench tests) |
+| `npm run build` | Pass |
+| Real Chromium (production build, **native** Fullscreen API): button above and right of the pitch; opening moves nothing and does not grow the page; 12 patterns listed; Esc/Cancel/backdrop apply nothing; Apply works in both layouts and keeps fullscreen; modal inside the fullscreen element and topmost; axe 0 violations (dropdown and modal); `window.open` never called; no console errors | 17/17 |
+
+Limits: in native fullscreen Safari/Firefox leave fullscreen on Esc at the browser level (the bench closes with it); Chromium keeps fullscreen via Keyboard Lock (held Esc leaves). Applying cannot fail in the current reducer, so the error path (alert, panel stays open) is code-only.
+
 ## Jersey display (added after Phase 7)
 
 Board option **Circles | Jerseys** for matches that use ISL team presets; details, colour sources and what is unverified are in `docs/TEAM_PRESETS.md` ("Jersey display").
