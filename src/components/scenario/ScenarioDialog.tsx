@@ -165,5 +165,7 @@ export function ScenarioDialog({ scenario, side, onClose }: ScenarioDialogProps)
     </div>
   );
 
-  return createPortal(dialog, document.body);
+  // In native fullscreen only the fullscreen element's subtree is painted, so the dialog goes inside it
+  // (opened from the Tactical Bench there); otherwise it is a plain overlay on the body.
+  return createPortal(dialog, document.fullscreenElement ?? document.body);
 }

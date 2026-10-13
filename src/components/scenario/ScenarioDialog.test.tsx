@@ -36,6 +36,7 @@ afterEach(() => {
 async function openScenario() {
   const user = userEvent.setup();
   render(<MatchWorkspace initialMatch={matchWithSquads()} />);
+  await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
   const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
   await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Overlapping full-back');
   await user.click(within(patterns).getByRole('button', { name: /watch animated scenario/i }));
@@ -65,7 +66,8 @@ describe('animated scenario on the overlap pattern', () => {
   it('offers the animation only for patterns that have one', async () => {
     const user = userEvent.setup();
     render(<MatchWorkspace initialMatch={matchWithSquads()} />);
-    const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
+    await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
+  const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
     expect(within(patterns).queryByRole('button', { name: /watch animated scenario/i })).not.toBeInTheDocument();
     await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Overlapping full-back');
     expect(within(patterns).getByRole('button', { name: /watch animated scenario/i })).toBeInTheDocument();
@@ -261,11 +263,12 @@ describe('animated scenario on the overlap pattern', () => {
   it('attacks as the chosen side', async () => {
     const user = userEvent.setup();
     render(<MatchWorkspace initialMatch={matchWithSquads()} />);
-    const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
+    await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
+  const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
     await user.click(within(patterns).getByRole('button', { name: 'Away FC' }));
     await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Overlapping full-back');
     await user.click(within(patterns).getByRole('button', { name: /watch animated scenario/i }));
-    const dialog = screen.getByRole('dialog');
+    const dialog = screen.getByRole('dialog', { name: /animated scenario/i });
     expect(within(dialog).getByRole('img', { name: /Away FC: Number 9/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('img', { name: /Home FC: Centre-back/ })).toBeInTheDocument();
   });
@@ -274,13 +277,26 @@ describe('animated scenario on the overlap pattern', () => {
     const { user, dialog, patterns } = await openScenario();
     const opener = within(patterns).getByRole('button', { name: /watch animated scenario/i });
     await user.click(within(dialog).getByRole('button', { name: 'Close animated scenario' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /animated scenario/i })).not.toBeInTheDocument();
     expect(opener).toHaveFocus();
     expect(drawings()).toHaveLength(0);
 
     await user.click(opener);
     await user.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /animated scenario/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the Tactical Bench open underneath: clicks and Escape in the scenario only affect the scenario', async () => {
+    const { user, dialog } = await openScenario();
+    const bench = () => screen.getByRole('dialog', { name: 'Tactical Bench' });
+    await user.click(within(dialog).getByRole('button', { name: /right flank/i }));
+    expect(screen.getByRole('dialog', { name: /animated scenario/i })).toBeInTheDocument();
+    expect(bench()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: /animated scenario/i })).not.toBeInTheDocument();
+    expect(bench()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Tactical Bench' })).not.toBeInTheDocument();
   });
 
   it('does not let board shortcuts fire while the scenario is open', async () => {
@@ -291,7 +307,10 @@ describe('animated scenario on the overlap pattern', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Close animated scenario' }));
     expect(tool('Select tool')).toHaveAttribute('aria-pressed', 'true');
     expect(tool('Pass tool')).toHaveAttribute('aria-pressed', 'false');
-    // Back on the board the shortcut works as before.
+    // The bench behind it is still open and swallows keys; once it is closed the shortcut works as before.
+    await user.keyboard('p');
+    expect(tool('Pass tool')).toHaveAttribute('aria-pressed', 'false');
+    await user.keyboard('{Escape}');
     await user.keyboard('p');
     expect(tool('Pass tool')).toHaveAttribute('aria-pressed', 'true');
   });

@@ -25,11 +25,8 @@ export function PatternPanel({ embedded = false, onApplied }: { embedded?: boole
   const [side, setSide] = useState<TeamSide>('home');
   const [patternId, setPatternId] = useState<PatternId>('high-press');
   const [confirmApply, setConfirmApply] = useState(false);
-<<<<<<< HEAD
   const [scenarioOpen, setScenarioOpen] = useState(false);
-=======
   const [error, setError] = useState<string | null>(null);
->>>>>>> origin/dev
   const team = getTeam(match, side);
   const name = teamDisplayName(team, side);
   const pattern = getPattern(patternId);

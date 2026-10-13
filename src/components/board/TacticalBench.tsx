@@ -13,6 +13,15 @@ type KeyboardLockApi = { lock?: (keys?: string[]) => Promise<void>; unlock?: () 
 const keyboardApi = (): KeyboardLockApi | undefined => (typeof navigator === 'undefined' ? undefined : (navigator as unknown as { keyboard?: KeyboardLockApi }).keyboard);
 
 /**
+ * True when the event came from another dialog opened from inside the bench (the animated scenario is
+ * portalled out of the panel's DOM): that dialog owns Escape and clicks, the bench must not react to them.
+ */
+function inNestedDialog(target: EventTarget | null, own: HTMLElement | null): boolean {
+  const dialog = target instanceof Element ? target.closest('[role="dialog"]') : null;
+  return dialog !== null && dialog !== own;
+}
+
+/**
  * The tactical patterns, one click from the pitch. Normal layout: an anchored dropdown under the button.
  * Fullscreen: an in-app modal rendered INSIDE the fullscreen element (so it is above the pitch and the browser
  * never leaves fullscreen or opens a window). Both show the same `PatternPanel`; nothing is applied until the
@@ -36,7 +45,7 @@ export function TacticalBench({ fullscreen }: { fullscreen: boolean }) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || inNestedDialog(e.target, panelRef.current)) return;
       e.preventDefault();
       e.stopPropagation();
       setOpen(false);
@@ -50,6 +59,7 @@ export function TacticalBench({ fullscreen }: { fullscreen: boolean }) {
   useEffect(() => {
     if (!open || fullscreen) return;
     const onPointerDown = (e: PointerEvent) => {
+      if (inNestedDialog(e.target, panelRef.current)) return;
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('pointerdown', onPointerDown);

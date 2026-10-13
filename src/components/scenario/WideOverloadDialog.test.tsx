@@ -36,6 +36,7 @@ afterEach(() => {
 async function open() {
   const user = userEvent.setup();
   render(<MatchWorkspace initialMatch={matchWithSquads()} />);
+  await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
   const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
   await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Wide overload');
   await user.click(within(patterns).getByRole('button', { name: /watch animated scenario/i }));
@@ -185,7 +186,8 @@ describe('Wide overload scenario in the UI', () => {
   it('leaves the overlap scenario untouched', async () => {
     const user = userEvent.setup();
     render(<MatchWorkspace initialMatch={matchWithSquads()} />);
-    const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
+    await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
+  const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
     await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Overlapping full-back');
     await user.click(within(patterns).getByRole('button', { name: /watch animated scenario/i }));
     const dialog = screen.getByRole('dialog', { name: /overlapping/i });
