@@ -133,6 +133,12 @@ cv-service/              Python service (see its README): app/ (config, video_io
                          components/board/PlayerDisplayControl.tsx + KitPanel.tsx
   components/presets/    NewMatchView (the /new screen), TeamCard, usePresetCatalog; components/ui/RemoteImage + Avatars (TeamLogo, PlayerAvatar);
                          components/setup/SquadPool + PlayerBadges
+  domain/scenario/       PURE. types.ts (TacticScenario: roles, base/outcome/option segments of waypoints + ball legs + arrows + beats, stages, space rules,
+                         marking), overlapFullBack.ts + wideOverload.ts (scenarios, each attached to its pattern), roles.ts (fixed shirt-number mapping), build.ts (scenario + selection → TacticalReplay,
+                         flank/side transform, stageAt/spacesAt/markingAt/visibleReplayAt), spaces.ts (rule evaluation from sampled positions, thresholds),
+                         verdict.ts (landing sentence per option), geometry.ts (metres maths, corridors, label placement)
+  components/scenario/   ScenarioDialog (portal dialog: state, layout), ScenarioPanels (stage strip, notes, outcome + option pickers),
+                         ScenarioUnderlay (space/marking SVG, legend, key, "Spaces right now")
   app/new/page.tsx + components/routes/NewMatchRoute.tsx   the `/new` route (AppProviders below the page)
 ```
 
@@ -245,6 +251,22 @@ Flow: **Replays → Track a video** → health check (setup instructions if the 
 44. **The video is never stored.** Only `TrackingData` (≈ 230 KB per 8 s segment; `serializeDocument` writes tracking blocks unindented, since indenting the number arrays made it ≈ 1 MB) is saved; after a reload the viewer offers "choose the same file again" (`AttachVideo`, length compared with the analysed one). Persistence: schema v3 + migration `2 → 3` (`tracking: null`), cross-field `validateTracking` in `parseDocument`, squad-link repair, `cloneMatchWithNewIds` remaps `playerId`.
 
 Tests: `domain/tracking/tracking.test.ts` (pure maths, sampling, edits, real-fixture build), `tracking/client.test.ts` (scripted transport: progress, polling, errors, cancel + DELETE, schema refusal, proxy whitelist, segment rules), `app/api/cv/[...path]/route.test.ts` (forwarding, streaming, refusal, unreachable), `components/tracking/Tracking.test.tsx` (the real UI with injected `TrackingDeps` returning the REAL fixture — proves the flow, not the models), `persistence/replays.test.ts` + `migrate.test.ts` (v2 → v3, round-trip). Python: `cd cv-service && uv run pytest -m "not integration"` (synthetic video with known geometry; fake detectors report ground truth) and `uv run pytest -m integration -s` (real weights on `test_clip.mp4`). Never describe tracking quality as verified beyond what `docs/IMPLEMENTATION_STATUS.md` records.
+
+## Tactic scenarios
+
+A pattern may carry an optional animated `scenario` (`TacticalPattern.scenario`; today `overlap` and `wide-overload`). The static pattern and **Apply to** are unchanged. Outcome and option ids, stage lists and the highlight vocabulary belong to each scenario (`TacticScenario`), not to the engine.
+
+55. **A scenario is data compiled onto the replay engine, never a second animation system.** `buildScenario(def, {outcome, option}, {side, flank})` returns an ordinary `TacticalReplay` (origin `manual`, id `scenario-<id>`, fixed epoch timestamps) played by `ReplayPlayer`, `useReplayClock` and `samplePositions`; it is never stored in a match, never persisted, and needs no schema bump. Deterministic: same inputs, same replay; replaying calls no model and nothing regenerates paths. Authored in the attacking team's frame on the **left** flank; `build.ts` mirrors y for the right flank and rotates for the away side once.
+56. **Branches are separate and start from one state.** Every role has a waypoint at `forkT` and at `decisionT`; outcomes (A default, B alternative) diverge after `forkT`; the three options are alternative segments appended at `decisionT` and are compiled one at a time, so choosing one cannot run another. With no option chosen the timeline ends at the decision point and the clock stops there.
+57. **Highlights are computed, not drawn.** `evaluateSpaces` derives open space, passing lanes, cover and exposed space from the sampled positions at the current time (metres, because the pitch is not isotropic); thresholds are in `SPACE_THRESHOLDS`. A highlight appears only inside its rule's window and is dropped when a defender closes it; "contested" is drawn fainter and dashed. Wording never claims a striker is unmarked or awards a shot or goal (`verdict.ts`).
+58. **Legibility is a tested property.** No two displayed players are closer than 4 m at any sampled time (markers are 5.2 m across), the ball keeps a 3-unit lead on its carrier so it is never hidden under the marker, and the labels under markers are replaced by role badges plus a key (`labels={false}` on `ReplayPitch`; accessible names keep the role). Space labels are placed away from players (`placeLabels`); details are listed in "Spaces right now", not on the pitch.
+59. **Adding a scenario**: put its definition next to `overlapFullBack.ts`, attach it to the pattern, and extend `scenario.test.ts` (stages contiguous, waypoints at fork/decision, ball sync, ≥ 4 m separation, options independent). Do not add per-tactic logic to the components.
+
+60. **Shirt numbers are fixed roles** (`roles.ts`: 1 GK, 2/3 full-backs, 4/5 centre-backs, 6 DM, 7/11 wingers, 8 CM, 9 striker, 10 AM; 2 and 7 right-sided, 3 and 11 left-sided, 4 right-sided, 5 left-sided CB, a documented assumption). A scenario role carries `number: ByFlank<number>`; mirroring to the other flank mirrors positions and the numbers that stand there, so a number never changes meaning (on the right flank the overloading players are 7 and 2 and the far-side winger is 11). Badges show the number inside the marker; jerseys never print it (invariant 52), and the key lists badge → role. Numbers are role labels, not squad players.
+61. **A chosen option never changes the frames before the decision.** The compiler holds every key a hair after `decisionT` (`isolateDecision`, plus the ball) so the curve into the decision does not look ahead at the branch; tests compare all lines on a dense grid.
+62. **An option that is not on is not played.** An option may carry a `byOutcome[outcome]` override with `replace: true` and a `retain` verdict: where the lane is closed at the decision point the ball is kept instead, and the sentence says why. Tests assert the intended pass is played only where its lane is not closed, so the animation cannot contradict the highlight. Counts such as "4v2" come from `overload` (attackers v defenders inside the ellipse the attackers occupy plus a margin) and are shown as "no overload" when they do not support one.
+
+Tests: `domain/scenario/scenario.test.ts` and `wideOverload.test.ts` (pure), `components/scenario/ScenarioDialog.test.tsx` and `WideOverloadDialog.test.tsx` (the real UI through the pattern panel, with a controllable animation-frame clock).
 
 ## Next.js 16 / hydration rules
 

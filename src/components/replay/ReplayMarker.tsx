@@ -30,10 +30,14 @@ interface ReplayMarkerProps {
   onKeyDown?: (e: KeyboardEvent<SVGGElement>) => void;
   /** Jersey display: this side's kit, and the number printed on it (null = none; never the tracker/label id). */
   kit?: ResolvedKit | null;
+  /** Text drawn inside the circle instead of a shirt number (a role such as "LB"); never on a jersey. */
+  badge?: string;
+  /** The name/label under the marker. Off where a key explains the badges instead (the accessible name keeps it). */
+  showLabel?: boolean;
 }
 
 /** A player or the ball in the replay. Same visual language as board markers; positions are estimates, not tracking. */
-export function ReplayMarker({ actor, view, source, description, editable, selected, dragging, onKeyDown, kit = null }: ReplayMarkerProps) {
+export function ReplayMarker({ actor, view, source, description, editable, selected, dragging, onKeyDown, kit = null, badge, showLabel = true }: ReplayMarkerProps) {
   const transform = `translate(${view.x} ${view.y})`;
   const interactive = editable
     ? { role: 'button' as const, tabIndex: 0, 'aria-pressed': selected, onKeyDown }
@@ -85,23 +89,25 @@ export function ReplayMarker({ actor, view, source, description, editable, selec
             strokeWidth={source === 'ai' ? 0.45 : 0.3}
             strokeDasharray={source === 'ai' ? '0.9 0.6' : undefined}
           />
-          {actor.shirtNumber !== null ? (
-            <text y={0.9} textAnchor="middle" fontSize={2.5} fontWeight={700} fill={colours.text} style={{ pointerEvents: 'none' }}>
-              {actor.shirtNumber}
+          {actor.shirtNumber !== null || badge ? (
+            <text y={0.9} textAnchor="middle" fontSize={badge && badge.length > 1 ? 2.1 : 2.5} fontWeight={700} fill={colours.text} style={{ pointerEvents: 'none' }}>
+              {actor.shirtNumber ?? badge}
             </text>
           ) : null}
         </>
       )}
-      <text
-        y={MARKER_RADIUS + 2.3}
-        textAnchor="middle"
-        fontSize={1.8}
-        fontWeight={600}
-        fill={T.labelText}
-        style={{ ...LABEL_STYLE, pointerEvents: 'none' }}
-      >
-        {shown.length > 14 ? `${shown.slice(0, 13)}…` : shown}
-      </text>
+      {showLabel ? (
+        <text
+          y={MARKER_RADIUS + 2.3}
+          textAnchor="middle"
+          fontSize={1.8}
+          fontWeight={600}
+          fill={T.labelText}
+          style={{ ...LABEL_STYLE, pointerEvents: 'none' }}
+        >
+          {shown.length > 14 ? `${shown.slice(0, 13)}…` : shown}
+        </text>
+      ) : null}
     </g>
   );
 }

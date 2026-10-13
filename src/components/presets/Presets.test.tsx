@@ -203,7 +203,8 @@ describe('Create match: ISL presets', () => {
 
     // Editing the match never reaches the shared preset.
     expect(season).toEqual(pristine);
-  });
+  // A long end-to-end workflow: ~2 s alone, but it ran past the 5 s default when the whole suite shares the CPU.
+  }, 20000);
 
   it('keeps matches independent of later preset updates, and survives leaving and reopening', async () => {
     const user = userEvent.setup();

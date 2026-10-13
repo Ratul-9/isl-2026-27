@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Orientation } from '@/domain/geometry';
 import { activeAnnotation } from '@/domain/replay/interpolate';
 import type { TacticalReplay } from '@/domain/types';
@@ -22,11 +23,20 @@ export function ReplayPlayer({
   playback,
   teamNames,
   editing,
+  underlay,
+  badges,
+  stepUnit,
+  labels,
 }: {
   replay: TacticalReplay;
   playback: ReplayPlayback;
   teamNames: { home: string; away: string };
   editing?: ReplayPitchEditing;
+  /** Highlights drawn under the arrows; given the pitch orientation the player is showing. */
+  underlay?: (orientation: Orientation) => ReactNode;
+  badges?: Readonly<Record<string, string>>;
+  stepUnit?: 'keyframe' | 'frame' | 'stage';
+  labels?: boolean;
 }) {
   const [orientation, setOrientation] = useState<Orientation>(initialOrientation);
   const note = activeAnnotation(replay, playback.time);
@@ -59,14 +69,23 @@ export function ReplayPlayer({
       </div>
 
       <div className="flex min-h-0 justify-center rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
-        <ReplayPitch replay={replay} time={playback.time} orientation={orientation} teamNames={teamNames} editing={editing} />
+        <ReplayPitch
+          replay={replay}
+          time={playback.time}
+          orientation={orientation}
+          teamNames={teamNames}
+          editing={editing}
+          underlay={underlay?.(orientation)}
+          badges={badges}
+          labels={labels}
+        />
       </div>
 
       <p className="min-h-5 text-sm text-zinc-200" aria-live="polite" data-testid="replay-caption">
         {note ? note.label : <span className="text-zinc-400">{replay.event.description || 'No description yet.'}</span>}
       </p>
 
-      <ReplayControls playback={playback} />
+      <ReplayControls playback={playback} stepUnit={stepUnit} />
     </div>
   );
 }

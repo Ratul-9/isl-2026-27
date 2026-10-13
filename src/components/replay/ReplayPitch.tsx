@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { KeyboardEvent, PointerEvent } from 'react';
+import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import type { Orientation } from '@/domain/geometry';
 import { clientToPitch, viewBoxFor } from '@/domain/geometry';
 import { canonicalToReplay, clampReplayPoint, replayToCanonical, replayToView } from '@/domain/replay/coords';
@@ -43,6 +43,12 @@ interface ReplayPitchProps {
   orientation: Orientation;
   teamNames: { home: string; away: string };
   editing?: ReplayPitchEditing;
+  /** SVG drawn under the arrows and players (e.g. highlighted spaces). Must not take pointer events. */
+  underlay?: ReactNode;
+  /** Short text drawn inside a marker's circle (a role), by actor id. Jerseys never show it. */
+  badges?: Readonly<Record<Id, string>>;
+  /** Draw the label under each player (default). Off when badges and a key identify the players. */
+  labels?: boolean;
 }
 
 /**
@@ -50,7 +56,7 @@ interface ReplayPitchProps {
  * is a pure function of (replay, time); dragging only exists in the editor and
  * commits once on release.
  */
-export function ReplayPitch({ replay, time, orientation, teamNames, editing }: ReplayPitchProps) {
+export function ReplayPitch({ replay, time, orientation, teamNames, editing, underlay, badges, labels = true }: ReplayPitchProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const playerKits = usePlayerKits();
   const [drag, setDrag] = useState<{ actorId: Id; point: ReplayPoint } | null>(null);
@@ -142,6 +148,11 @@ export function ReplayPitch({ replay, time, orientation, teamNames, editing }: R
       <DrawingDefs />
       {playerKits.jerseys ? <JerseyDefs kits={playerKits.inUse} /> : null}
       <PitchMarkings orientation={orientation} />
+      {underlay ? (
+        <g data-layer="underlay" style={{ pointerEvents: 'none' }}>
+          {underlay}
+        </g>
+      ) : null}
       <DrawingLayer drawings={drawings} orientation={orientation} selectedId={null} interactive={false} draft={null} />
       {replay.annotations
         .filter((a) => a.point && a.t <= time && time < a.t + 2.5)
@@ -170,6 +181,8 @@ export function ReplayPitch({ replay, time, orientation, teamNames, editing }: R
               selected={editing?.selectedActorId === actor.id}
               dragging={drag?.actorId === actor.id}
               kit={playerKits.jerseys && actor.kind !== 'ball' && actor.side ? playerKits.kits[actor.side] : null}
+              badge={badges?.[actor.id]}
+              showLabel={labels}
               onKeyDown={(e) => onMarkerKeyDown(actor.id, e)}
             />
           );

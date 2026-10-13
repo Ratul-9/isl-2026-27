@@ -31,6 +31,11 @@ export function useReplayClock(duration: number, keyframeTimes: readonly number[
   const reset = useCallback(() => setClock((c) => clockOps.reset(c)), []);
   const replay = useCallback(() => setClock((c) => clockOps.replay(c, duration)), [duration]);
   const seek = useCallback((t: number) => setClock((c) => clockOps.seek(clockOps.pause(c), t, duration)), [duration]);
+  /** Seek and play in one step; `length` is for a timeline that was just extended and is not rendered yet. */
+  const playFrom = useCallback(
+    (t: number, length: number = duration) => setClock((c) => clockOps.play(clockOps.seek(c, t, length), length)),
+    [duration],
+  );
   const setSpeed = useCallback((s: PlaybackSpeed) => setClock((c) => clockOps.setSpeed(c, s)), []);
   const step = useCallback(
     (direction: 1 | -1) => setClock((c) => clockOps.step(c, direction, keyframeTimes, duration)),
@@ -40,8 +45,8 @@ export function useReplayClock(duration: number, keyframeTimes: readonly number[
   // A shortened replay never leaves the playhead beyond its end.
   const time = Math.min(clock.time, Math.max(0, duration));
   return useMemo(
-    () => ({ time, playing: clock.playing, speed: clock.speed, duration, play, pause, reset, replay, seek, setSpeed, step }),
-    [time, clock.playing, clock.speed, duration, play, pause, reset, replay, seek, setSpeed, step],
+    () => ({ time, playing: clock.playing, speed: clock.speed, duration, play, pause, reset, replay, seek, playFrom, setSpeed, step }),
+    [time, clock.playing, clock.speed, duration, play, pause, reset, replay, seek, playFrom, setSpeed, step],
   );
 }
 

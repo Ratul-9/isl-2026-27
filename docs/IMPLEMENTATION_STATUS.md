@@ -9,7 +9,7 @@ Authoritative handoff document. If code and this file disagree, trust the code a
 | Last completed phase | **Phase 7 — Integration, Responsive Design and QA** (final planned phase) |
 | Product state | Feature-complete against the brief's §8 acceptance checklist; verified in a real browser (see matrix below) |
 | Next phase | None planned. Optional follow-ups at the end of this file |
-| Last updated | 2026-10-12 |
+| Last updated | 2026-10-13 |
 | Version control | Last commit `ce96767` (Phase 3). **Phases 4–7 and all post-Phase-7 features (incl. `cv-service/`) are uncommitted**; Claude does not commit unless asked |
 | Post-Phase 7 features | **Team presets (ISL 2026-27)** (`/new`, `npm run presets`, schema v4): implemented and verified in a real browser against the real league site and image CDN — see "Team presets" below. **Computer-vision tracking** (`Replays → Track a video`, `cv-service/`, schema v3): implemented; the real models were run on the real `test_clip.mp4` through the real UI in WebKit — see "Computer-vision tracking" below. **Licence decision open (AGPL-3.0).** **Tactical replays from video clips** (`Replays` view, schema v2): implemented; verified in a real browser against a *stand-in* for Gemini, **never against the real Gemini API** — see "Tactical replays" below. **Image-to-match import** (`/import`): implemented and verified except against a real vision provider — see the section below. **Fullscreen pitch**: implemented and verified in real Chromium (native + overlay fallback) — see "Fullscreen pitch" below |
 
@@ -263,6 +263,74 @@ Design choices: FFmpeg is **not** used (not installed here; Gemini's per-part `v
 | `npm test` | **43 files; 602 passed, 2 skipped** (the skipped are the real-provider lineup tests) |
 | `npm run build` | Pass; `/api/analyze-video` and `/api/extract-lineup` dynamic |
 | `npx knip` | Prints nothing |
+
+## Animated tactic scenario: Overlapping full-back (added after Phase 7)
+
+The existing **Overlapping full-back** pattern (`overlap`) now has a staged, animated, branching scenario. **Tactical patterns → Overlapping full-back → Watch animated scenario** opens it; **Apply to …** still draws the original static arrows.
+
+### What it does
+- Team A (the side chosen in the panel) attacks on the **left or right flank** (toggle, mirrored); Team B defends. Ten players and the ball: A's full-back, winger, No. 9, No. 8, No. 6; B's winger, full-back, two centre-backs and a screening midfielder (the second centre-back is there to show who covers the striker when the first steps out, the midfielder to show when the lane to the No. 8 closes).
+- **Stages**: 1 carry and press, pass inside · 2 winger receives and carries inside, overlap starts · 3 the overlap and the defender's decision · 4 winger releases the full-back, centre-backs re-balance · **Decision point** (the clock stops here).
+- **Outcome A** (default): B's winger stays with the ball and the outside channel is open. **Outcome B**: he tracks the runner; the full-back receives under pressure and B's full-back helps out wide.
+- **Options** (unlocked at the decision point, one at a time): cross to the No. 9 · pass back inside to the winger · cutback to the No. 8. Each ends with a sentence computed from the final geometry (distances to defenders, lane status); none awards a shot or goal.
+- **Highlights** (all computed from positions): open outside channel, crossing lane, gap between centre-backs (with whether the striker is still marked), lane to the No. 8 (removed when a defender closes it), the winger's room inside, the No. 6's cover zone, the space left behind the full-back, the cross target zone, and marking lines. A legend and a "Spaces right now" list explain them.
+- Controls are the replay engine's: play/pause, reset, replay, scrub, speed, step (stage boundaries), plus a stage strip, outcome picker and option picker. Coaching notes per stage, outcome notes, "how defenders can neutralise it", and a caveat that it is an illustration.
+
+### Architecture
+`domain/scenario/*` (pure; definition → `TacticalReplay`), `components/scenario/*`, small additions to the replay components (`ReplayPitch` `underlay`/`badges`/`labels`, `ReplayMarker` `badge`/`showLabel`, `ReplayPlayer` passthroughs, `useReplayClock.playFrom`) and `PatternPanel` (button). No schema change, no new dependency, nothing stored. See CLAUDE.md invariants 55–59.
+
+### Verification (commands run this session)
+| Check | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint`, `npx knip --no-progress` | Pass, nothing printed |
+| `npm test` | **58 files; 852 passed, 2 skipped** (+ `scenario.test.ts` 53, `ScenarioDialog.test.tsx` 19) |
+| Real Chromium (Playwright `chromium_headless_shell`, dev server): both outcomes, all three options, both flanks, away side, 1500 px and 390 px portrait | Screenshots reviewed; no console errors; no horizontal overflow at 390 px. The first render exposed overlapping markers, a ball hidden under its carrier and colliding on-pitch text, all fixed and now covered by tests (separation ≥ 4 m, ball lead, labels) |
+
+### Tactical assumptions and limitations
+- Positions are illustrative example positions on a 105 × 68 m pitch, not measurements; real defenders vary with shape, score and match state. The scene says so.
+- Highlight thresholds (lane open ≥ 4 m, contested ≥ 2.4 m, "marked" ≤ 6 m, channel contested < 8 m, …) are judgement values in `SPACE_THRESHOLDS`, not derived from data.
+- The cross lane only considers defenders near the kicker (a lofted ball passes over mid-lane defenders); the landing is judged by who is within reach of the target.
+- The cutback in Outcome B is shown completing even when the lane is only contested; the verdict says how tight it is rather than staging an interception.
+- Only Chromium (headless) was used; no Safari/Firefox/touch check. Colours are fixed hex values, not yet exported to PNG (the scenario has no export).
+- Only this tactic is implemented; the other eleven patterns remain static.
+
+## Animated tactic scenario: Wide overload (added after Phase 7)
+
+The existing **Wide overload** pattern (`wide-overload`) gets a staged, branching animation like the overlapping full-back (same button: **Tactical patterns → Wide overload → Watch animated scenario**). **Apply to …** still draws the original static arrows; the other patterns are untouched.
+
+### What it does
+- Team A (the chosen side) overloads the **left or right flank** (toggle, mirrored) with its winger, advancing full-back, No. 8 and No. 10; the No. 6 drops across behind and inside the full-back; the far-side winger stays wide as the switch target. Seventeen players are drawn (ten attackers, seven defenders; no goalkeepers).
+- **Fixed shirt numbers** (`domain/scenario/roles.ts`): left flank = No. 11 and No. 3 overload, No. 7 is the far-side winger; right flank = No. 7 and No. 2, No. 11 far side. Numbers never swap meaning. Assumption: 4 right-sided, 5 left-sided centre-back.
+- **Seven stages**: 1 initial structure · 2 establish the overload · 3 create the numerical advantage (short passes 6 → full-back → winger → No. 10) · 4 defensive responses · 5 protect against transitions (No. 6 covers, rest defence) · 6 exploit the opening (decision point) · 7 resolve the action (reachable once an option is chosen).
+- **Defensive responses** (picker): *Block shifts across* (central pair and far-side full-back slide over: the count goes 4v2 → 4v3, the far side loosens) and *Midfielder steps out* (No. 6 presses, No. 8 tracks the run, back line holds: the centre may open). Team A adapts differently in each (No. 9 and No. 10 positions differ).
+- **Options** from the No. 8: line-breaking pass to the No. 9 · diagonal switch to the far-side winger · recycle. Each is played only where its lane is not closed at the decision point; otherwise the No. 8 keeps the ball (to the No. 6, then the far-side centre-back) and the sentence says which lane was closed and by how much. Resolve actions: the No. 9 turns and carries, or the far-side winger carries, or possession is re-set. No shot or goal is awarded.
+- **Highlights**, all computed: overloaded zone with its count ("4v2 overload", or "4v4, no overload"), central space between the lines and far-side space (each drawn only when no defender is in or near it), line-breaking lane and lofted switch lane (dropped when closed), No. 6 cover, space behind the full-back, marking lines, plus the lists in "Spaces right now".
+
+### Engine changes this needed (the overlap scenario still passes unchanged)
+| Constraint found | Change |
+|---|---|
+| Outcome ids were `A`/`B` and options `cross`/`combine`/`cutback` | Ids are scenario-defined strings; outcome/option pickers read labels from the scenario |
+| Verdict text hard-wired `a-8`/`a-9` | `OptionDef.verdict` spec (`delivery`, `receiver`, `lanes`, `retain`), roles carry a `short` caption name |
+| One decision stage | optional `resolveStage` (starts when the first pass lands); stage labels; unavailable stages are disabled |
+| Rule vocabulary lacked a count, free zones and a switch lane | `overload`, `zone` rules; lane mode `lofted` (defenders near either end block it) |
+| Roles had a badge only | `number: ByFlank<number>` from the fixed mapping |
+| A branch could not replace the option | `byOutcome[...].replace` |
+| **Found by the new tests:** a chosen option subtly reshaped the movement *before* the decision (end tangent looks at the next key) | the compiler holds each key just after the decision; the test compares every line frame-by-frame (also strengthened for the overlap scenario) |
+
+### Verification (commands run this session)
+| Check | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint`, `npx knip --no-progress`, `npm run build` | Pass, nothing printed (build compiled) |
+| `npm test` | **60 files; 906 passed, 2 skipped** (+ `wideOverload.test.ts` 42, `WideOverloadDialog.test.tsx` 11) |
+| Real Chromium (production build, real animation-frame clock at 2×): stages 1–6 play in order and stop at the decision point in 6.9 s; all 6 outcome × option combinations end at their durations (16.6 / 17 / 15.8) with the expected sentence; no API requests, no console errors/warnings |
+| Real Chromium (dev server): both responses, all three options, the fall-back path, right flank, 1500 px | Frames reviewed. The first render showed cluttered captions on short arrows and a key that printed numbers twice; fixed (captions only on arrows ≥ 12 m, key de-duplicated, labels placed away from arrows) |
+
+### Limitations
+- Positions and thresholds are illustrative (same caveats as the overlap scenario); the overload ellipse's margin (5 m, minimum 11 × 9 m) is a judgement and the count is sensitive to it near the edge.
+- Only two responses and three options are modelled; real defences have more.
+- Both teams use the same numbers (blue and white tell them apart); there is no goalkeeper (No. 1) drawn.
+- Jersey display shows no numbers on scenario players by design.
+- One test in the existing suite (`Presets.test.tsx`, a long end-to-end workflow) needed an explicit 20 s timeout: it takes ~2 s alone but passed 5 s once the suite grew heavier.
 
 ## Fullscreen pitch (added after Phase 7)
 

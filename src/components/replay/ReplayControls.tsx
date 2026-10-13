@@ -10,7 +10,7 @@ import type { ReplayPlayback } from './useReplayClock';
 const format = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
 
 /** Transport controls for a replay: play, pause, reset, replay, scrub, speed, step. Never touches match data. */
-export function ReplayControls({ playback, stepUnit = 'keyframe', seekStep = 0.05 }: { playback: ReplayPlayback; stepUnit?: 'keyframe' | 'frame'; seekStep?: number }) {
+export function ReplayControls({ playback, stepUnit = 'keyframe', seekStep = 0.05 }: { playback: ReplayPlayback; stepUnit?: 'keyframe' | 'frame' | 'stage'; seekStep?: number }) {
   const { time, duration, playing, speed } = playback;
   const atEnd = duration > 0 && time >= duration;
   const empty = !(duration > 0);

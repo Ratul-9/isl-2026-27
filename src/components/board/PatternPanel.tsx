@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Clapperboard, Sparkles } from 'lucide-react';
 import { isLayoutModified } from '@/domain/layout';
 import { getTeam, teamDisplayName } from '@/domain/match';
 import { getPattern, isPatternId, PATTERNS } from '@/domain/patterns';
@@ -11,6 +11,7 @@ import { useMatch, useMatchActions } from '@/store/MatchContext';
 import { Button } from '@/components/ui/Button';
 import { ConfirmBar } from '@/components/ui/ConfirmBar';
 import { SelectField } from '@/components/ui/fields';
+import { ScenarioDialog } from '@/components/scenario/ScenarioDialog';
 import { cn } from '@/lib/cn';
 
 /** Tactical pattern library: apply a phase-of-play shape + arrows to one team. */
@@ -20,6 +21,7 @@ export function PatternPanel() {
   const [side, setSide] = useState<TeamSide>('home');
   const [patternId, setPatternId] = useState<PatternId>('high-press');
   const [confirmApply, setConfirmApply] = useState(false);
+  const [scenarioOpen, setScenarioOpen] = useState(false);
   const team = getTeam(match, side);
   const name = teamDisplayName(team, side);
   const pattern = getPattern(patternId);
@@ -69,6 +71,16 @@ export function PatternPanel() {
         ))}
       </SelectField>
       <p className="text-xs leading-relaxed text-zinc-400">{pattern.description}</p>
+      {pattern.scenario ? (
+        <>
+          <Button size="sm" onClick={() => setScenarioOpen(true)} title="Step through this tactic as a staged animation with the defenders' reactions">
+            <Clapperboard size={14} aria-hidden /> Watch animated scenario
+          </Button>
+          {scenarioOpen ? (
+            <ScenarioDialog scenario={pattern.scenario} side={side} onClose={() => setScenarioOpen(false)} />
+          ) : null}
+        </>
+      ) : null}
 
       {confirmApply ? (
         <ConfirmBar

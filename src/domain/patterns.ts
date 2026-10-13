@@ -1,5 +1,8 @@
 import { clampPoint, distanceMetres, fromTeamFrame, toTeamFrame } from './geometry';
 import { applyTemplate, positionFamily, resolveTemplate } from './layout';
+import { OVERLAP_SCENARIO } from './scenario/overlapFullBack';
+import { WIDE_OVERLOAD_SCENARIO } from './scenario/wideOverload';
+import type { TacticScenario } from './scenario/types';
 import type { Drawing, DrawingKind, Id, LineupSlot, Point, SavedLayout, Team, TeamSide } from './types';
 
 /**
@@ -53,6 +56,8 @@ export interface TacticalPattern {
   id: PatternId;
   name: string;
   description: string;
+  /** An animated, staged version of the same tactic (see domain/scenario). Static application is unchanged. */
+  scenario?: TacticScenario;
   build(slots: PatternSlot[]): PatternResult;
 }
 
@@ -213,6 +218,7 @@ export const PATTERNS: readonly TacticalPattern[] = [
     id: 'overlap',
     name: 'Overlapping full-back',
     description: 'Left winger checks inside with the ball while the left back overlaps around the outside.',
+    scenario: OVERLAP_SCENARIO,
     build(slots) {
       const positions = shiftUp(slots, 0.2);
       const fb = leftFullBack(slots);
@@ -243,6 +249,7 @@ export const PATTERNS: readonly TacticalPattern[] = [
     id: 'wide-overload',
     name: 'Wide overload',
     description: 'Midfield and attack shift to the left flank to create a numerical advantage out wide.',
+    scenario: WIDE_OVERLOAD_SCENARIO,
     build(slots) {
       const positions = mapPositions(slots, (s) => {
         if (isGK(s)) return { x: s.x + 0.05, y: 0.45 };
