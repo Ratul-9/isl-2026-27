@@ -157,6 +157,7 @@ describe('BoardView', () => {
 
   it('applies a tactical pattern with arrows, then clears annotations without moving players', async () => {
     const user = setup();
+    await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
     const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
     await user.selectOptions(within(patterns).getByLabelText('Pattern'), 'Overlapping full-back');
     await user.click(within(patterns).getByRole('button', { name: /apply to home fc/i }));
@@ -177,6 +178,7 @@ describe('BoardView', () => {
   it('asks before a pattern overwrites custom positions', async () => {
     const user = setup();
     drag(marker('#9 Striker'), toView({ x: 0.45, y: 0.2 }, 'landscape'));
+    await user.click(screen.getByRole('button', { name: 'Tactical Bench' }));
     const patterns = screen.getByRole('region', { name: 'Tactical patterns' });
     await user.click(within(patterns).getByRole('button', { name: /apply to home fc/i }));
     expect(within(patterns).getByRole('alertdialog')).toHaveTextContent(/custom positions/);

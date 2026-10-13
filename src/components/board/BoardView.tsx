@@ -19,8 +19,8 @@ import { DrawingToolbar, TOOLS } from './DrawingToolbar';
 import { BenchPanel } from './BenchPanel';
 import { FormationPanel, SavedLayoutsPanel } from './FormationPanel';
 import { KitPanel } from './KitPanel';
-import { PatternPanel } from './PatternPanel';
 import { PlayerDisplayControl } from './PlayerDisplayControl';
+import { TacticalBench } from './TacticalBench';
 import { SelectionPanel } from './SelectionPanel';
 
 /** True when a key press belongs to a text field or other form control. */
@@ -202,19 +202,25 @@ export function BoardView({
         ) : null}
         <div
           className={cn(
-            'flex min-h-0 justify-center',
-            isFullscreen ? 'flex-1 items-center' : 'rounded-lg border border-zinc-800 bg-zinc-900/40 p-2',
+            'flex min-h-0 flex-col',
+            isFullscreen ? 'flex-1' : 'rounded-lg border border-zinc-800 bg-zinc-900/40 p-2',
           )}
         >
-          <TacticalBoard
-            fill={isFullscreen}
-            ref={boardRef}
-            orientation={orientation}
-            snap={snap}
-            tool={tool}
-            selection={selection}
-            onSelect={setSelection}
-          />
+          {/* Top-right of the display area, above (outside) the pitch, so it never covers a marking. */}
+          <div className="flex shrink-0 justify-end pb-2">
+            <TacticalBench key={isFullscreen ? 'fullscreen' : 'normal'} fullscreen={isFullscreen} />
+          </div>
+          <div className={cn('flex min-h-0 justify-center', isFullscreen && 'flex-1 items-center')}>
+            <TacticalBoard
+              fill={isFullscreen}
+              ref={boardRef}
+              orientation={orientation}
+              snap={snap}
+              tool={tool}
+              selection={selection}
+              onSelect={setSelection}
+            />
+          </div>
         </div>
       </div>
 
@@ -238,7 +244,6 @@ export function BoardView({
           <FormationPanel side="away" />
         </div>
         <SavedLayoutsPanel />
-        <PatternPanel />
       </aside>
     </div>
   );
